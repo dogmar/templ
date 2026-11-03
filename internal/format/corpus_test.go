@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/a-h/templ/internal/rendercheck"
 )
 
 // TestRepositoryTemplatesFormatSafely formats every .templ file in the
@@ -45,20 +43,15 @@ func TestRepositoryTemplatesFormatSafely(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to read: %v", err)
 			}
-			out, _, err := Templ(src, path, Config{})
-			if mismatch := (*rendercheck.MismatchError)(nil); errors.As(err, &mismatch) {
-				t.Fatalf("formatting would change rendered output: %v", err)
-			}
-			if err != nil {
-				t.Logf("skipping, could not format: %v", err)
+			// Prettier is covered by TestFormatting; skipping it here keeps
+			// this test fast.
+			err = checkFormat(src, path, Config{PrettierCommand: noPrettier})
+			if errors.Is(err, errInvalidInput) {
+				t.Logf("skipping: %v", err)
 				return
 			}
-			out2, changed, err := Templ(out, path, Config{})
 			if err != nil {
-				t.Fatalf("second pass failed: %v", err)
-			}
-			if changed {
-				t.Errorf("not idempotent: second pass changed the output:\n%s\n--- vs ---\n%s", out, out2)
+				t.Fatal(err)
 			}
 		})
 	}
