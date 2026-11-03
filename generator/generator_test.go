@@ -166,7 +166,7 @@ templ For(items []string) {
 	}
 }
 
-func TestIsTrailingSpaceNeeded(t *testing.T) {
+func TestRendersTrailingSpace(t *testing.T) {
 	inlineText := &parser.Text{Value: "hello", TrailingSpace: parser.SpaceHorizontal}
 	newlineText := &parser.Text{Value: "hello", TrailingSpace: parser.SpaceVertical}
 	inlineStringExpr := &parser.StringExpression{TrailingSpace: parser.SpaceHorizontal}
@@ -297,7 +297,7 @@ func TestIsTrailingSpaceNeeded(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isTrailingSpaceNeeded(tt.current, tt.next)
+			got := parser.RendersTrailingSpace(tt.current, tt.next)
 			if got != tt.expected {
 				t.Errorf("got %t, expected %t", got, tt.expected)
 			}
