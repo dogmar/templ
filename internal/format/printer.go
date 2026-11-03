@@ -24,6 +24,16 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 			return nil, err
 		}
 	}
+	if t.Package.Expression.Value == "" && len(t.Nodes) == 0 {
+		// A file with no package and no templates has nothing to separate,
+		// so keep only the header, trimmed. Otherwise every pass would add
+		// blank lines.
+		out := bytes.TrimSpace(buf.Bytes())
+		if len(out) > 0 {
+			out = append(out, '\n')
+		}
+		return out, nil
+	}
 	if err := t.Package.Write(&buf, 0); err != nil {
 		return nil, err
 	}

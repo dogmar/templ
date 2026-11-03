@@ -150,6 +150,10 @@ module.exports = {
 
 ### Formatting
 
+Formatting through the LSP never changes what a template renders. If a format would change the rendered output, the LSP returns an error and leaves the file as it is. To set the maximum line width, pass `-width` to `templ lsp`. The default is `100`.
+
+See [Formatting templ files](/developer-tools/cli#formatting-templ-files) for details, including tag breaks and whitespace in `<pre>` and `<textarea>`.
+
 With the templ LSP installed and configured, you can use the following code snippet to format on save:
 
 ```lua
