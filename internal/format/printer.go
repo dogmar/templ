@@ -54,6 +54,8 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 			err = printHTMLTemplate(&buf, ht, width)
 		} else if st, ok := n.(*parser.ScriptTemplate); ok {
 			err = writeScriptTemplate(&buf, st)
+		} else if css, ok := n.(*parser.CSSTemplate); ok {
+			err = writeCSSTemplate(&buf, css)
 		} else {
 			err = n.Write(&buf, 0)
 		}
@@ -81,6 +83,50 @@ func writeScriptTemplate(w io.Writer, s *parser.ScriptTemplate) error {
 	}
 	_, err = io.WriteString(w, "script "+s.Name.Value+"("+s.Parameters.Value+") {\n"+s.Value+"}")
 	return err
+}
+
+// writeCSSTemplate writes css as its Write does, except that a newline at
+// either edge of a property's expression is kept, as stringExpressionDoc
+// keeps it: in the generated code it lays the call around the expression
+// out on lines of its own.
+func writeCSSTemplate(w io.Writer, css *parser.CSSTemplate) error {
+	var header bytes.Buffer
+	if err := (&parser.CSSTemplate{Expression: css.Expression}).Write(&header, 0); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, strings.TrimSuffix(header.String(), "}")); err != nil {
+		return err
+	}
+	for _, p := range css.Properties {
+		e, ok := p.(*parser.ExpressionCSSProperty)
+		if !ok || !strings.ContainsAny(edgeWhitespace(e.Value.Expression.Value), "\n") {
+			if err := p.Write(w, 1); err != nil {
+				return err
+			}
+			continue
+		}
+		v := e.Value.Expression.Value
+		trimmed := strings.TrimSpace(v)
+		leading, trailing := v[:strings.Index(v, trimmed)], v[strings.Index(v, trimmed)+len(trimmed):]
+		edge := func(ws string) string {
+			if n := strings.Count(ws, "\n"); n > 0 {
+				return strings.Repeat("\n", n)
+			}
+			return " "
+		}
+		if _, err := io.WriteString(w, "\t"+e.Name+": {"+edge(leading)+trimmed+edge(trailing)+"};\n"); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "}")
+	return err
+}
+
+// edgeWhitespace is the whitespace at the start and end of v.
+func edgeWhitespace(v string) string {
+	trimmed := strings.TrimSpace(v)
+	i := strings.Index(v, trimmed)
+	return v[:i] + v[i+len(trimmed):]
 }
 
 // scriptParameterNames is the parameter list the generator writes for the
@@ -378,7 +424,12 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int, ownLi
 		return nil
 	case kind == parser.BoundaryFixed:
 		return sourceWhitespace(g, verticalWhitespace(prev, doc.HardLine(), depth))
-	case startsWithSpace(g.node) || continuesCall(prev, g.node):
+	case continuesCall(prev, g.node):
+		// Only a newline ends the call: a horizontal space here (which a
+		// whitespace rune other than a space can leave) would be read as
+		// part of the call.
+		return verticalWhitespace(prev, newline(g), depth)
+	case startsWithSpace(g.node):
 		return sourceWhitespace(g, verticalWhitespace(prev, newline(g), depth))
 	case ownLine:
 		// A soft boundary renders the same as a space or a newline. Text
@@ -559,7 +610,9 @@ func headerDoc(s string) doc.Doc {
 // ifDoc lays out an if statement with each body indented under its header.
 // The parser only reads else after a closing brace at the start of its
 // line when the body before it is empty, so then the brace is not
-// indented.
+// indented. An empty else block is kept: the parser reads text starting
+// with else after an if statement as its else branch, and the block is
+// what separates them.
 func ifDoc(n *parser.IfExpression, next parser.Node, depth int) doc.Doc {
 	parts := []doc.Doc{
 		headerDoc("if " + n.Expression.Value + " {"),
@@ -574,7 +627,7 @@ func ifDoc(n *parser.IfExpression, next parser.Node, depth int) doc.Doc {
 		)
 		before = e.Then
 	}
-	if len(n.Else) > 0 {
+	if len(n.Else) > 0 || n.ElseRange != (parser.Range{}) {
 		end := bodyEndDoc(before, next, depth)
 		if len(nonWhitespace(before)) == 0 {
 			end = doc.LiteralLine()
@@ -626,7 +679,14 @@ func callDoc(n *parser.TemplElementExpression, depth int) doc.Doc {
 		call = linesDoc("@"+n.Expression.Value, doc.LiteralLine())
 	}
 	if len(n.Children) == 0 {
-		return call
+		if !hasChildrenBlock(n) {
+			return call
+		}
+		// An empty children block is kept, and kept empty, since the
+		// generator renders a block holding only whitespace as children:
+		// without it, a following { would be read as part of the call's
+		// expression or as its children.
+		return doc.Concat(call, doc.Text(" {}"))
 	}
 	return doc.Concat(
 		call,
@@ -635,6 +695,12 @@ func callDoc(n *parser.TemplElementExpression, depth int) doc.Doc {
 		bodyEndDoc(n.Children, nil, depth),
 		doc.Text("}"),
 	)
+}
+
+// hasChildrenBlock reports whether the call n was written with a children
+// block, which extends its range past its expression.
+func hasChildrenBlock(n *parser.TemplElementExpression) bool {
+	return n.Range.To.Index > n.Expression.Range.To.Index
 }
 
 // bodyDoc lays out the body of a statement whose first line is at depth:
@@ -1009,7 +1075,8 @@ func trimExpressionKey(a parser.Attribute) parser.Attribute {
 		return a
 	}
 	ek, ok := (*k).(parser.ExpressionAttributeKey)
-	if trimmed := strings.TrimRight(ek.Expression.Value, " \t"); ok && trimmed != ek.Expression.Value {
+	trimmed := strings.TrimRightFunc(ek.Expression.Value, func(r rune) bool { return r != '\n' && isWhitespaceRune(r) })
+	if ok && trimmed != ek.Expression.Value {
 		ek.Expression.Value = trimmed
 		a = a.Copy()
 		*key(a) = ek

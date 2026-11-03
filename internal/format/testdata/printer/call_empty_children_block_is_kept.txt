@@ -1,0 +1,20 @@
+-- in --
+package A
+
+templ A() {
+	<p>@A {}{}</p>
+	<p>@A {
+	}</p>
+	<p>@A</p>
+}
+-- out --
+package A
+
+templ A() {
+	<p>@A {}{  }</p>
+	<p>
+		@A {
+		}
+	</p>
+	<p>@A</p>
+}

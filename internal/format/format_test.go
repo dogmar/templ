@@ -140,3 +140,16 @@ func TestTemplKeepsLoneCarriageReturn(t *testing.T) {
 		t.Errorf("expected source unchanged, got %q", out)
 	}
 }
+
+func TestTemplKeepsFileInsideComment(t *testing.T) {
+	// A block comment left open in the header makes the rest of the file
+	// comment text, which the generated code keeps as it is.
+	src := "/*\npackage A\n0/**/"
+	out, changed, err := Templ([]byte(src), "", Config{PrettierCommand: "templ-no-such-prettier-command"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed || string(out) != src {
+		t.Errorf("expected source unchanged, got %q", out)
+	}
+}

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/scanner"
+	"go/token"
+	"strings"
 
 	"github.com/a-h/templ/internal/imports"
 	"github.com/a-h/templ/internal/prettier"
@@ -79,6 +82,13 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 		// turn it into one. Text keeps a lone carriage return as written,
 		// and so must every line break next to it, so the source is kept
 		// as it is.
+		return src, false, nil
+	}
+	if opensComment(t) {
+		// A block comment opened in the header or the package clause and
+		// never closed makes the rest of the file, and the generated code,
+		// comment text, whose layout the generator keeps as it is, so the
+		// source is kept as it is.
 		return src, false, nil
 	}
 	if t.Package.Expression.Value == "" && len(t.Nodes) > 0 {
@@ -170,6 +180,28 @@ func calculateNodeDepth(e parser.Node, nodeToDepth map[parser.Node]int, depth in
 	case parser.CompositeNode:
 		for _, child := range e.ChildNodes() {
 			calculateNodeDepth(child, nodeToDepth, depth+1)
+		}
+	}
+}
+
+// opensComment reports whether the header and package clause of t, scanned
+// as Go, end inside a block comment.
+func opensComment(t *parser.TemplateFile) bool {
+	var src strings.Builder
+	for _, h := range t.Header {
+		src.WriteString(h.Expression.Value)
+		src.WriteString("\n")
+	}
+	src.WriteString(t.Package.Expression.Value)
+	opens := false
+	fset := token.NewFileSet()
+	var sc scanner.Scanner
+	sc.Init(fset.AddFile("", fset.Base(), src.Len()), []byte(src.String()), func(_ token.Position, msg string) {
+		opens = opens || msg == "comment not terminated"
+	}, scanner.ScanComments)
+	for {
+		if _, tok, _ := sc.Scan(); tok == token.EOF {
+			return opens
 		}
 	}
 }

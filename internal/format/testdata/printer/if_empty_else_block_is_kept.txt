@@ -1,0 +1,30 @@
+-- in --
+package A
+
+templ A() {
+	<p>if 0{
+}else{}else if 0{
+0}</p>
+	<p>if 0{
+<b></b>
+}else{
+}</p>
+}
+-- out --
+package A
+
+templ A() {
+	<p>
+		if 0 {
+} else {
+		}
+		else if 0{
+		0 }
+	</p>
+	<p>
+		if 0 {
+			<b></b>
+		} else {
+		}
+	</p>
+}

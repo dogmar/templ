@@ -61,16 +61,24 @@ func textWords(s string) []string {
 	return append(words, s[start:])
 }
 
+// isWhitespaceRune reports whether r is whitespace to the parser, which
+// reads whitespace with parse.Whitespace (unicode.White_Space). Every
+// decision the printer makes about whitespace must use this predicate, or
+// a rune the parser collapses would be kept, or the reverse.
+func isWhitespaceRune(r rune) bool {
+	return unicode.Is(unicode.White_Space, r)
+}
+
 // startsWithSpaceRune reports whether s starts with a whitespace rune.
 func startsWithSpaceRune(s string) bool {
 	r, _ := utf8.DecodeRuneInString(s)
-	return unicode.IsSpace(r)
+	return isWhitespaceRune(r)
 }
 
 // endsWithSpaceRune reports whether s ends with a whitespace rune.
 func endsWithSpaceRune(s string) bool {
 	r, _ := utf8.DecodeLastRuneInString(s)
-	return unicode.IsSpace(r)
+	return isWhitespaceRune(r)
 }
 
 // isLineStartHazard reports whether word would be parsed as templ syntax if
