@@ -71,9 +71,10 @@ var censusGaps = []string{"", " ", "   ", "\n", "\n\n"}
 // nodes either side of the gap in the parsed body. A nil prev or next kind
 // means the edge of an element.
 type censusContext struct {
-	name  string
-	body  func(prev, next *censusKind, gap string) string
-	nodes func(p *parser.Element) (container []parser.Node, prev, next parser.Node, ok bool)
+	name            string
+	boundaryContext parser.BoundaryContext
+	body            func(prev, next *censusKind, gap string) string
+	nodes           func(p *parser.Element) (prev, next parser.Node, ok bool)
 	// pairs lists the (prev, next) kind pairs used by this context.
 	pairs func() [][2]*censusKind
 }
@@ -98,30 +99,32 @@ func nonWhitespace(nodes []parser.Node) (output []parser.Node) {
 
 var censusContexts = []censusContext{
 	{
-		name: "siblings",
+		name:            "siblings",
+		boundaryContext: parser.BoundaryInElement,
 		body: func(prev, next *censusKind, gap string) string {
 			return "<p>" + prev.src + gap + next.src + "\n</p>"
 		},
-		nodes: func(p *parser.Element) ([]parser.Node, parser.Node, parser.Node, bool) {
+		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
 			nw := nonWhitespace(p.Children)
 			if len(nw) != 2 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
-			return p.Children, nw[0], nw[1], true
+			return nw[0], nw[1], true
 		},
 		pairs: allPairs,
 	},
 	{
-		name: "openingEdge",
+		name:            "openingEdge",
+		boundaryContext: parser.BoundaryInElement,
 		body: func(_, next *censusKind, gap string) string {
 			return "<p>" + gap + next.src + "\n</p>"
 		},
-		nodes: func(p *parser.Element) ([]parser.Node, parser.Node, parser.Node, bool) {
+		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
 			nw := nonWhitespace(p.Children)
 			if len(nw) != 1 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
-			return p.Children, nil, nw[0], true
+			return nil, nw[0], true
 		},
 		pairs: func() (pairs [][2]*censusKind) {
 			for i := range censusKinds {
@@ -131,16 +134,17 @@ var censusContexts = []censusContext{
 		},
 	},
 	{
-		name: "closingEdge",
+		name:            "closingEdge",
+		boundaryContext: parser.BoundaryInElement,
 		body: func(prev, _ *censusKind, gap string) string {
 			return "<p>" + prev.src + gap + "</p>"
 		},
-		nodes: func(p *parser.Element) ([]parser.Node, parser.Node, parser.Node, bool) {
+		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
 			nw := nonWhitespace(p.Children)
 			if len(nw) != 1 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
-			return p.Children, nw[0], nil, true
+			return nw[0], nil, true
 		},
 		pairs: func() (pairs [][2]*censusKind) {
 			for i := range censusKinds {
@@ -151,48 +155,52 @@ var censusContexts = []censusContext{
 	},
 	{
 		// prev is the last child of an if body; next is the node after the if.
-		name: "statementBodyEnd",
+		// The generator drops a body's trailing *Whitespace node, so the gap
+		// is classified as in an element.
+		name:            "statementBodyEnd",
+		boundaryContext: parser.BoundaryInElement,
 		body: func(prev, next *censusKind, gap string) string {
 			return "<p>if x {\n" + prev.src + gap + "}\n" + next.src + "\n</p>"
 		},
-		nodes: func(p *parser.Element) ([]parser.Node, parser.Node, parser.Node, bool) {
+		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
 			nw := nonWhitespace(p.Children)
 			if len(nw) != 2 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
 			ie, ok := nw[0].(*parser.IfExpression)
 			if !ok {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
 			then := nonWhitespace(ie.Then)
 			if len(then) != 1 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
-			return ie.Then, then[0], nw[1], true
+			return then[0], nw[1], true
 		},
 		pairs: allPairs,
 	},
 	{
 		// Siblings inside an if body, where the generator only strips the
 		// body's leading and trailing whitespace nodes.
-		name: "statementBodySiblings",
+		name:            "statementBodySiblings",
+		boundaryContext: parser.BoundaryInBody,
 		body: func(prev, next *censusKind, gap string) string {
 			return "<p>if x {\n" + prev.src + gap + next.src + "\n}\n</p>"
 		},
-		nodes: func(p *parser.Element) ([]parser.Node, parser.Node, parser.Node, bool) {
+		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
 			nw := nonWhitespace(p.Children)
 			if len(nw) != 1 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
 			ie, ok := nw[0].(*parser.IfExpression)
 			if !ok {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
 			then := nonWhitespace(ie.Then)
 			if len(then) != 2 {
-				return nil, nil, nil, false
+				return nil, nil, false
 			}
-			return ie.Then, then[0], then[1], true
+			return then[0], then[1], true
 		},
 		pairs: allPairs,
 	},
@@ -208,8 +216,6 @@ type censusGap struct {
 	reason     string
 	rendered   string
 	prev, next parser.Node
-	// whitespaceNode is true if a *parser.Whitespace node sits in the gap.
-	whitespaceNode bool
 }
 
 func kindName(k *censusKind) string {
@@ -239,7 +245,7 @@ func renderCensusGap(ctx censusContext, prev, next *censusKind, gap string) (cg 
 		cg.reason = "unexpected template shape"
 		return cg
 	}
-	container, pn, nn, ok := ctx.nodes(p)
+	pn, nn, ok := ctx.nodes(p)
 	if !ok || (prev != nil && !prev.is(pn)) || (next != nil && !next.is(nn)) {
 		cg.reason = "pair did not parse as two separate nodes"
 		return cg
@@ -253,28 +259,12 @@ func renderCensusGap(ctx censusContext, prev, next *censusKind, gap string) (cg 
 		return cg
 	}
 	cg.prev, cg.next = pn, nn
-	cg.whitespaceNode = whitespaceNodeBetween(container, pn, nn)
 	if cg.rendered, err = rendercheck.Render(tf); err != nil {
 		cg.reason = "render error: " + err.Error()
 		return cg
 	}
 	cg.valid = true
 	return cg
-}
-
-func whitespaceNodeBetween(container []parser.Node, prev, next parser.Node) bool {
-	inGap := prev == nil
-	for _, n := range container {
-		switch {
-		case n == prev:
-			inGap = true
-		case n == next:
-			return false
-		case inGap && isType[*parser.Whitespace](n):
-			return true
-		}
-	}
-	return false
 }
 
 var writeStringRegexp = regexp.MustCompile(`templruntime\.WriteString\(templ_7745c5c3_Buffer, \d+, ("(?:[^"\\]|\\.)*")\)`)
@@ -369,19 +359,17 @@ type censusResult struct {
 func TestBoundaryCensus(t *testing.T) {
 	results := map[string]censusResult{}
 	key := func(ctx, prev, next string) string { return ctx + "|" + prev + "|" + next }
-	var skipped, inexpressible []string
+	var skipped []string
 	for _, ctx := range censusContexts {
 		for _, pair := range ctx.pairs() {
 			prev, next := pair[0], pair[1]
 			name := fmt.Sprintf("%s: %s → %s", ctx.name, kindName(prev), kindName(next))
 			gaps := make([]censusGap, len(censusGaps))
-			var whitespaceNode bool
 			for i, gap := range censusGaps {
 				gaps[i] = renderCensusGap(ctx, prev, next, gap)
 				if !gaps[i].valid {
 					t.Logf("%s: gap %q skipped: %s", name, gap, gaps[i].reason)
 				}
-				whitespaceNode = whitespaceNode || gaps[i].whitespaceNode
 			}
 			candidates, reason := classifyFromRenders(gaps)
 			if candidates == nil {
@@ -401,7 +389,7 @@ func TestBoundaryCensus(t *testing.T) {
 				if err != nil {
 					t.Fatalf("invalid gap %q: %v", g.gap, err)
 				}
-				got := parser.ClassifyBoundary(g.prev, g.next, ws)
+				got := parser.ClassifyBoundary(g.prev, g.next, ws, ctx.boundaryContext)
 				var wants []string
 				for _, c := range candidates {
 					want := expectedForGap(c, ws)
@@ -415,15 +403,6 @@ func TestBoundaryCensus(t *testing.T) {
 					mismatches = append(mismatches, fmt.Sprintf("gap %q: rendered output says %s, ClassifyBoundary says %s (%q renders %q)",
 						g.gap, strings.Join(wants, "|"), got, g.src, staticHTML(g.rendered)))
 				}
-			}
-			if len(mismatches) == 0 {
-				continue
-			}
-			if whitespaceNode {
-				// The generator renders a *parser.Whitespace node in this
-				// context, which ClassifyBoundary(prev, next, ws) cannot see.
-				inexpressible = append(inexpressible, fmt.Sprintf("%s: %d of %d gaps differ, e.g. %s", name, len(mismatches), len(gaps), mismatches[0]))
-				continue
 			}
 			for _, m := range mismatches {
 				t.Errorf("%s %s", name, m)
@@ -452,10 +431,10 @@ func TestBoundaryCensus(t *testing.T) {
 		}
 	}
 
-	logCensusSummary(t, results, skipped, inexpressible)
+	logCensusSummary(t, results, skipped)
 }
 
-func logCensusSummary(t *testing.T, results map[string]censusResult, skipped, inexpressible []string) {
+func logCensusSummary(t *testing.T, results map[string]censusResult, skipped []string) {
 	counts := map[string]map[string]int{}
 	var notIgnored []string
 	for _, r := range results {
@@ -482,6 +461,5 @@ func logCensusSummary(t *testing.T, results map[string]censusResult, skipped, in
 	}
 	fmt.Fprintf(&sb, "not ignored (%d):\n  %s\n", len(notIgnored), strings.Join(notIgnored, "\n  "))
 	fmt.Fprintf(&sb, "skipped pairs (%d):\n  %s\n", len(skipped), strings.Join(skipped, "\n  "))
-	fmt.Fprintf(&sb, "inexpressible (%d):\n  %s\n", len(inexpressible), strings.Join(inexpressible, "\n  "))
 	t.Log(sb.String())
 }

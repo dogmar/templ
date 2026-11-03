@@ -34,32 +34,70 @@ func (b Boundary) String() string {
 	return fmt.Sprintf("Boundary(%d)", int(b))
 }
 
+// BoundaryContext is the kind of node list a boundary sits in, which decides
+// whether the generator renders *Whitespace nodes.
+type BoundaryContext int
+
+const (
+	// BoundaryInElement is the children of an element or a template. The
+	// generator drops every *Whitespace node.
+	BoundaryInElement BoundaryContext = iota
+	// BoundaryInBody is the body of an if, else if, else, for or switch case,
+	// or the children of a templ element expression (@c() { ... }). The
+	// generator drops leading and trailing *Whitespace nodes, and renders each
+	// interior one as a single space.
+	BoundaryInBody
+)
+
 // ClassifyBoundary classifies the gap between prev and next, where ws is the
-// whitespace written in the gap.
+// whitespace written in the gap and ctx is the kind of node list holding them.
 //
 // prev and next are the nodes either side of the gap, not *Whitespace nodes.
 // When prev is the last node in an if, for or switch body, next is the node
-// after the statement. next is nil at an element's closing edge or the end of
-// a template, and prev is nil at an element's opening edge.
+// after the statement, and ctx is BoundaryInElement, because the generator
+// drops the body's trailing *Whitespace node. next is nil at an
+// element's closing edge or the end of a template, and prev is nil at an
+// element's opening edge.
 //
 // ws only picks between BoundaryGlued (SpaceNone) and BoundarySoft at
 // boundaries that render.
-func ClassifyBoundary(prev, next Node, ws TrailingSpace) Boundary {
-	if _, ok := prev.(WhitespaceTrailer); !ok {
-		// The generator only writes whitespace that trails a node.
+func ClassifyBoundary(prev, next Node, ws TrailingSpace, ctx BoundaryContext) Boundary {
+	if prev == nil || next == nil {
+		// Leading and trailing whitespace is never rendered.
 		return BoundaryIgnored
+	}
+	if _, ok := prev.(WhitespaceTrailer); !ok {
+		// Whitespace after prev is parsed as a *Whitespace node, which only
+		// renders in a body.
+		if ctx != BoundaryInBody {
+			return BoundaryIgnored
+		}
+		switch next.(type) {
+		case *ForExpression:
+			// The for parser consumes all leading whitespace.
+			return BoundaryIgnored
+		case *ChildrenExpression:
+			// The children parser consumes leading spaces, but not newlines.
+			return BoundaryFixed
+		}
+		return gluedOrSoft(ws)
 	}
 	horizontal := rendersTrailingSpace(prev, next, SpaceHorizontal)
 	vertical := rendersTrailingSpace(prev, next, SpaceVertical)
 	switch {
-	case horizontal && vertical && ws == SpaceNone:
-		return BoundaryGlued
 	case horizontal && vertical:
-		return BoundarySoft
+		return gluedOrSoft(ws)
 	case horizontal || vertical:
 		return BoundaryFixed
 	}
 	return BoundaryIgnored
+}
+
+func gluedOrSoft(ws TrailingSpace) Boundary {
+	if ws == SpaceNone {
+		return BoundaryGlued
+	}
+	return BoundarySoft
 }
 
 // RendersTrailingSpace reports whether the generator writes the trailing
