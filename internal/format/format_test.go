@@ -112,3 +112,18 @@ func TestConfigLineWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplKeepsLastLineWithoutPackage(t *testing.T) {
+	// Without a package clause, a last line with no newline is parsed as a
+	// template file node rather than header, so printing it on a line of
+	// its own would move it into the header.
+	for _, src := range []string{"//", "// a\n/* b */"} {
+		out, changed, err := Templ([]byte(src), "", Config{PrettierCommand: "templ-no-such-prettier-command"})
+		if err != nil {
+			t.Fatalf("%q: unexpected error: %v", src, err)
+		}
+		if changed || string(out) != src {
+			t.Errorf("%q: expected source unchanged, got %q", src, out)
+		}
+	}
+}

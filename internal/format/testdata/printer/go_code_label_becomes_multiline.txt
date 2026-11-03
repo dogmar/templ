@@ -1,0 +1,15 @@
+-- in --
+package A
+
+templ A() {
+	{{A:0}}
+}
+-- out --
+package A
+
+templ A() {
+	{{
+		A:
+		0
+	}}
+}

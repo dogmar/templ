@@ -2,9 +2,11 @@ package format
 
 import (
 	"bytes"
+	goformat "go/format"
 	"go/scanner"
 	"go/token"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/a-h/templ/internal/format/doc"
@@ -398,7 +400,7 @@ func nodeDoc(n parser.Node, gluedBefore bool, next parser.Node, depth int) doc.D
 	case *parser.Element:
 		return elementDoc(n, gluedBefore, depth)
 	case *parser.StringExpression:
-		return codeDoc(n.Write)
+		return stringExpressionDoc(n)
 	case *parser.IfExpression:
 		return ifDoc(n, next, depth)
 	case *parser.ForExpression:
@@ -416,8 +418,48 @@ func nodeDoc(n parser.Node, gluedBefore bool, next parser.Node, depth int) doc.D
 		// Write rewrites this to a templ element expression, which renders
 		// the whitespace around it differently, so the source syntax is kept.
 		return headerDoc("{! " + n.Expression.Value + " }")
+	case *parser.GoCode:
+		return verbatimDoc(multilineIfFormattedOnLines(n).Write, depth)
 	}
 	return verbatimDoc(n.Write, depth)
+}
+
+// multilineIfFormattedOnLines returns n, or a multi-line copy of it if n is
+// single-line but its code is formatted on more than one line, such as a
+// label. Written as single-line, the newline would make it multi-line when
+// parsed again, so it would be laid out differently on the next pass.
+func multilineIfFormattedOnLines(n *parser.GoCode) *parser.GoCode {
+	if n.Multiline {
+		return n
+	}
+	src, err := goformat.Source([]byte(n.Expression.Value))
+	if err != nil || !bytes.Contains(src, []byte("\n")) {
+		return n
+	}
+	c := *n
+	c.Multiline = true
+	return &c
+}
+
+// stringExpressionDoc is n as its Write writes it, except that the newlines
+// at the edges of its expression are kept. The expression is Go code in the
+// generated code, where a newline after the opening parenthesis of a call or
+// after a trailing comma lays the call out on lines of its own.
+func stringExpressionDoc(n *parser.StringExpression) doc.Doc {
+	v := n.Expression.Value
+	trimmed := strings.TrimSpace(v)
+	edge := func(ws string) string {
+		if newlines := strings.Count(ws, "\n"); newlines > 0 {
+			return strings.Repeat("\n", newlines)
+		}
+		return " "
+	}
+	before := edge(v[:strings.Index(v, trimmed)])
+	after := edge(v[strings.Index(v, trimmed)+len(trimmed):])
+	return codeDoc(func(w io.Writer, _ int) error {
+		_, err := io.WriteString(w, "{"+before+trimmed+after+"}")
+		return err
+	})
 }
 
 // headerDoc is the source line of a statement, as its Write writes it: Go
@@ -473,7 +515,15 @@ func switchDoc(n *parser.SwitchExpression, next parser.Node, depth int) doc.Doc 
 // callDoc lays out a templ element expression, and its children, if any,
 // as a body.
 func callDoc(n *parser.TemplElementExpression, depth int) doc.Doc {
-	call := verbatimDoc((&parser.TemplElementExpression{Expression: n.Expression}).Write, depth)
+	write := (&parser.TemplElementExpression{Expression: n.Expression}).Write
+	call := verbatimDoc(write, depth)
+	written := strings.TrimPrefix(writeString(write, 0), "@")
+	if !slices.Equal(verbatimTokens(written), verbatimTokens(n.Expression.Value)) {
+		// Write drops the spaces of blank lines, even those inside raw
+		// strings, which are kept in the generated code, so the call is
+		// kept as written.
+		call = linesDoc("@"+n.Expression.Value, doc.LiteralLine())
+	}
 	if len(n.Children) == 0 {
 		return call
 	}
@@ -537,11 +587,15 @@ func bodyEndDoc(nodes []parser.Node, next parser.Node, depth int) doc.Doc {
 }
 
 // codeDoc is the output of write at indent 0, one Text per line, with each
-// following line indented to the enclosing level, except for lines inside a
-// Go raw string literal, which are kept verbatim.
+// following line indented to the enclosing level plus its indentation
+// relative to the other following lines, except for lines inside a Go raw
+// string literal or comment, which are kept verbatim. The relative
+// indentation is kept, rather than the absolute, so that printing again does
+// not indent the lines further.
 func codeDoc(write func(w io.Writer, indent int) error) doc.Doc {
 	s := writeString(write, 0)
-	literal := rawStringNewlines(s)
+	literal := verbatimNewlines(s)
+	strip := commonIndent(s, literal)
 	var parts []doc.Doc
 	start := 0
 	for i := 0; i < len(s); i++ {
@@ -549,32 +603,86 @@ func codeDoc(write func(w io.Writer, indent int) error) doc.Doc {
 			continue
 		}
 		parts = append(parts, doc.Text(s[start:i]))
+		start = i + 1
 		if literal[i] {
 			parts = append(parts, doc.LiteralLine())
-		} else {
-			parts = append(parts, doc.HardLine())
+			continue
 		}
-		start = i + 1
+		parts = append(parts, doc.HardLine())
+		if strings.HasPrefix(s[start:], strip) {
+			start += len(strip)
+		}
 	}
 	return doc.Concat(append(parts, doc.Text(s[start:]))...)
 }
 
-// rawStringNewlines returns the offsets of the newlines in s that are inside
-// a Go raw string literal. If s cannot be scanned as Go, it returns every
-// newline, so that all lines are kept verbatim.
-func rawStringNewlines(s string) map[int]bool {
+// commonIndent is the longest run of spaces and tabs that starts every
+// non-blank line of s that follows a newline not in literal.
+func commonIndent(s string, literal map[int]bool) string {
+	var common string
+	first := true
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\n' || literal[i] {
+			continue
+		}
+		line := s[i+1:]
+		if end := strings.IndexByte(line, '\n'); end >= 0 {
+			line = line[:end]
+		}
+		if strings.TrimLeft(line, " \t") == "" {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		if first {
+			common, first = indent, false
+			continue
+		}
+		n := 0
+		for n < len(common) && n < len(indent) && common[n] == indent[n] {
+			n++
+		}
+		common = common[:n]
+	}
+	return common
+}
+
+// verbatimTokens returns the raw string literals and comments of s, which
+// formatting Go code keeps as written. If s cannot be scanned as Go, it
+// returns s.
+func verbatimTokens(s string) []string {
+	var tokens []string
+	failed := false
+	fset := token.NewFileSet()
+	var sc scanner.Scanner
+	sc.Init(fset.AddFile("", fset.Base(), len(s)), []byte(s), func(token.Position, string) { failed = true }, scanner.ScanComments)
+	for !failed {
+		_, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			return tokens
+		}
+		if tok == token.COMMENT || tok == token.STRING && strings.HasPrefix(lit, "`") {
+			tokens = append(tokens, lit)
+		}
+	}
+	return []string{s}
+}
+
+// verbatimNewlines returns the offsets of the newlines in s that are inside
+// a Go raw string literal or comment. If s cannot be scanned as Go, it
+// returns every newline, so that all lines are kept verbatim.
+func verbatimNewlines(s string) map[int]bool {
 	newlines := map[int]bool{}
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(s))
 	failed := false
 	var sc scanner.Scanner
-	sc.Init(file, []byte(s), func(token.Position, string) { failed = true }, 0)
+	sc.Init(file, []byte(s), func(token.Position, string) { failed = true }, scanner.ScanComments)
 	for !failed {
 		pos, tok, lit := sc.Scan()
 		if tok == token.EOF {
 			break
 		}
-		if tok != token.STRING || !strings.HasPrefix(lit, "`") {
+		if tok != token.COMMENT && (tok != token.STRING || !strings.HasPrefix(lit, "`")) {
 			continue
 		}
 		start := file.Offset(pos)
@@ -629,9 +737,17 @@ func linesDoc(s string, newline doc.Doc) doc.Doc {
 // it: a line break inside its opening tag.
 func elementDoc(e *parser.Element, gluedBefore bool, depth int) doc.Doc {
 	open := []doc.Doc{doc.Text("<" + e.Name)}
+	// The parser reads a < that no element name follows as an element with
+	// no name whose opening tag is the < alone, and renders it as <>. Its
+	// opening tag is printed as that lone <, because <> would parse as such
+	// an element followed by the text >.
+	tagEnd := ">"
+	if e.Name == "" {
+		tagEnd = ""
+	}
 	if len(e.Attributes) > 0 {
 		open = append(open, attributesDoc(e.Attributes)...)
-	} else if gluedBefore {
+	} else if gluedBefore && e.Name != "" {
 		open = append(open, doc.SoftLine())
 	}
 	children := nonWhitespace(e.Children)
@@ -639,14 +755,23 @@ func elementDoc(e *parser.Element, gluedBefore bool, depth int) doc.Doc {
 		if e.IsVoidElement() {
 			return doc.Group(append(open, doc.Text("/>"))...)
 		}
-		return doc.Group(append(open, doc.Text("></"+e.Name+">"))...)
+		return doc.Group(append(open, doc.Text(tagEnd+"</"+e.Name+">"))...)
 	}
 	// The opening tag is its own group, so it breaks only when it does not
 	// fit itself, not when the children do.
-	openTag := doc.Group(append(open, doc.Text(">"))...)
+	openTag := doc.Group(append(open, doc.Text(tagEnd))...)
 	childrenDoc := nodesDoc(e.Children, siblings{ctx: parser.BoundaryInElement}, depth+1)
 	first, last := children[0], children[len(children)-1]
 	closeTag := doc.Text("</" + e.Name + ">")
+	if _, isText := first.(*parser.Text); e.Name == "" && isText && !startsWithSpace(first) {
+		// Text glued to a lone < could be read as an element name.
+		return doc.Concat(
+			openTag,
+			doc.Indent(doc.HardLine(), childrenDoc),
+			closingEdge(last, doc.HardLine()),
+			closeTag,
+		)
+	}
 	if hasBlockChild(children) || doc.HasHardLine(childrenDoc) {
 		return doc.Concat(
 			openTag,
@@ -682,6 +807,7 @@ func attributesDoc(attrs []parser.Attribute) []doc.Doc {
 // attributeDoc is the text of a's Write. Constant values render as written,
 // so their newlines are kept verbatim, and so are those of comments.
 func attributeDoc(a parser.Attribute) doc.Doc {
+	a = trimExpressionKey(a)
 	switch a := a.(type) {
 	case *parser.ConstantAttribute:
 		return linesDoc(a.String(), doc.LiteralLine())
@@ -701,6 +827,37 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 		return doc.Concat(parts...)
 	}
 	return codeDoc(a.Write)
+}
+
+// trimExpressionKey returns a, or a copy of it whose expression key has no
+// trailing spaces or tabs. The parser keeps the spaces before the closing
+// brace of a key whose expression ends with a comma, so writing the key
+// with its padding would add a space on every pass.
+func trimExpressionKey(a parser.Attribute) parser.Attribute {
+	key := func(a parser.Attribute) *parser.AttributeKey {
+		switch a := a.(type) {
+		case *parser.BoolConstantAttribute:
+			return &a.Key
+		case *parser.ConstantAttribute:
+			return &a.Key
+		case *parser.BoolExpressionAttribute:
+			return &a.Key
+		case *parser.ExpressionAttribute:
+			return &a.Key
+		}
+		return nil
+	}
+	k := key(a)
+	if k == nil {
+		return a
+	}
+	ek, ok := (*k).(parser.ExpressionAttributeKey)
+	if trimmed := strings.TrimRight(ek.Expression.Value, " \t"); ok && trimmed != ek.Expression.Value {
+		ek.Expression.Value = trimmed
+		a = a.Copy()
+		*key(a) = ek
+	}
+	return a
 }
 
 // attributeBlockDoc is the indented attributes of a conditional attribute

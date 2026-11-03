@@ -73,6 +73,13 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 	if err != nil {
 		return nil, false, err
 	}
+	if t.Package.Expression.Value == "" && len(t.Nodes) > 0 {
+		// Without a package clause, every line ending in a newline is read
+		// as header, so the nodes are the text of a last line with no
+		// newline. Printed on lines of their own, they would be read as
+		// header and render elsewhere, so the source is kept as it is.
+		return src, false, nil
+	}
 	t.Filepath = fileName
 	t, err = imports.Process(t)
 	if err != nil {

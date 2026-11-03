@@ -1,0 +1,28 @@
+-- in --
+package A
+
+templ A(){<{""}</>}
+
+templ B() {
+	<</>
+}
+
+templ C() {
+	< x</>
+}
+-- out --
+package A
+
+templ A() {
+	<{ "" }</>
+}
+
+templ B() {
+	<</>
+}
+
+templ C() {
+	<
+		x
+	</>
+}

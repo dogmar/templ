@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package A\ntempl A(A[]A){<{\"\"}<div>{\"\"}</div>for 0%00=range 0{\n<div>{0}</div>0}</>0} ")

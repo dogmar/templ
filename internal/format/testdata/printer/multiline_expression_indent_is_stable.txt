@@ -1,0 +1,18 @@
+-- in --
+package A
+
+templ A() {
+	<a>{ f(1,
+				2,
+					3) }</a>
+}
+-- out --
+package A
+
+templ A() {
+	<a>
+		{ f(1,
+		2,
+			3) }
+	</a>
+}
