@@ -45,8 +45,15 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 		var err error
 		if ht, ok := n.(*parser.HTMLTemplate); ok {
 			err = printHTMLTemplate(&buf, ht, width)
-		} else if e, ok := n.(*parser.TemplateFileGoExpression); ok {
+		} else if e, ok := n.(*parser.TemplateFileGoExpression); ok && opensComment(t.Package.Expression.Value) {
+			// The block comment the package clause opens continues into
+			// the Go code after it, which is then comment text that
+			// formatting would change.
+			_, err = io.WriteString(&buf, e.Expression.Value)
+		} else if ok {
 			err = writeGoExpression(&buf, e)
+		} else if st, ok := n.(*parser.ScriptTemplate); ok {
+			err = writeScriptTemplate(&buf, st)
 		} else {
 			err = n.Write(&buf, 0)
 		}
@@ -58,17 +65,77 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// writeGoExpression writes e as its Write does, unless e contains a
-// carriage return. Formatting e alone removes carriage returns from its
-// comments, which changes how the generated code is formatted: there, the
-// comment //\r0 stays //0 but //0 becomes the doc comment // 0. So e is
-// written as it is.
+// writeScriptTemplate writes s as its Write does, unless formatting its
+// parameters would change the parameter names the generator writes into
+// the script's JavaScript, such as by removing a trailing comma. Then the
+// parameters are written as they are.
+func writeScriptTemplate(w io.Writer, s *parser.ScriptTemplate) error {
+	formatted, err := goformat.Source([]byte("func " + s.Name.Value + "(" + s.Parameters.Value + ")"))
+	if err != nil {
+		return s.Write(w, 0)
+	}
+	params := strings.TrimPrefix(string(formatted), "func "+s.Name.Value+"(")
+	params = strings.TrimSuffix(params, ")")
+	if scriptParameterNames(params) == scriptParameterNames(s.Parameters.Value) {
+		return s.Write(w, 0)
+	}
+	_, err = io.WriteString(w, "script "+s.Name.Value+"("+s.Parameters.Value+") {\n"+s.Value+"}")
+	return err
+}
+
+// scriptParameterNames is the parameter list the generator writes for the
+// parameters of a script template: the first word of each comma-separated
+// parameter.
+func scriptParameterNames(parameters string) string {
+	var names []string
+	for _, p := range strings.Split(parameters, ",") {
+		names = append(names, strings.TrimSpace(strings.Split(strings.TrimSpace(p), " ")[0]))
+	}
+	return strings.Join(names, ", ")
+}
+
+// writeGoExpression writes e as its Write does, unless that would change
+// how the generated code is formatted, in which case e is written as it is.
+// That happens when e contains a carriage return: formatting e alone
+// removes carriage returns from its comments, and in the generated code the
+// comment //\r0 stays //0 but //0 becomes the doc comment // 0. It also
+// happens when formatting changes whether e's last line starts with //:
+// the generator follows such a line with a newline rather than a blank
+// line, which makes a comment a doc comment.
 func writeGoExpression(w io.Writer, e *parser.TemplateFileGoExpression) error {
-	if strings.Contains(e.Expression.Value, "\r") {
-		_, err := io.WriteString(w, e.Expression.Value)
+	var buf bytes.Buffer
+	if err := e.Write(&buf, 0); err != nil {
 		return err
 	}
-	return e.Write(w, 0)
+	written := buf.String()
+	if strings.Contains(e.Expression.Value, "\r") || endsWithLineComment(written) != endsWithLineComment(e.Expression.Value) {
+		written = e.Expression.Value
+	}
+	_, err := io.WriteString(w, written)
+	return err
+}
+
+// opensComment reports whether s, scanned as Go, ends inside a block
+// comment.
+func opensComment(s string) bool {
+	opens := false
+	fset := token.NewFileSet()
+	var sc scanner.Scanner
+	sc.Init(fset.AddFile("", fset.Base(), len(s)), []byte(s), func(_ token.Position, msg string) {
+		opens = opens || msg == "comment not terminated"
+	}, scanner.ScanComments)
+	for {
+		if _, tok, _ := sc.Scan(); tok == token.EOF {
+			return opens
+		}
+	}
+}
+
+// endsWithLineComment reports whether the last line of s, ignoring a final
+// newline, starts with //.
+func endsWithLineComment(s string) bool {
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	return strings.HasPrefix(lines[len(lines)-1], "//")
 }
 
 // templateFileNodeSeparator is the whitespace written after the top-level
@@ -198,6 +265,7 @@ func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 		words = append(words, contents[1:]...)
 	}
 	prevBreaks := false // the previous node ended a run
+	prevJoined := false // the previous node is text on one line with the text before it
 	for i, g := range gs {
 		t, isText := g.node.(*parser.Text)
 		var prev parser.Node
@@ -206,18 +274,34 @@ func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 			prev = gs[i-1].node
 			kind = parser.ClassifyBoundary(prev, g.node, g.ws, s.ctx)
 		}
+		// Text that starts with a keyword keeps the newline after it while
+		// it still starts a text node, so is not joined on one line to
+		// the text before it.
+		keepsNewline := kind == parser.BoundarySoft && g.ws == parser.SpaceVertical && startsWithKeyword(prev) && !prevJoined
+		prevJoined = false
 		if _, prevIsText := prev.(*parser.Text); prevIsText && isText && kind == parser.BoundarySoft {
 			// Adjacent text joins the same run of words.
-			words = append(words, textJoin(prev, t, g, s.caseBody))
+			sep := textJoin(prev, t, g, s.caseBody)
+			if keepsNewline {
+				sep = verticalWhitespace(prev, newline(g), depth)
+			}
+			prevJoined = sep == doc.Text(" ")
+			words = append(words, sep)
 			words = append(words, textParts(t, s.caseBody)...)
 			continue
 		}
-		if kind == parser.BoundarySoft && endsWithSpace(prev) && !isOwnLine(g.node) {
+		if kind == parser.BoundarySoft && endsWithSpace(prev) && !isOwnLine(g.node) && !keepsNewline {
 			// The boundary's space is written at the end of the text, glued
 			// to the next node, which is how it parses again. Text is never
 			// a breaking node, so it is the last content of the Fill.
 			words[len(words)-1] = doc.Concat(words[len(words)-1], doc.Text(" "))
 			kind = parser.BoundaryGlued
+		}
+		boundary := func(ownLine bool) doc.Doc {
+			if keepsNewline {
+				return verticalWhitespace(prev, newline(g), depth)
+			}
+			return boundaryDoc(prev, g, kind, depth, ownLine, s.caseBody)
 		}
 		var contents []doc.Doc
 		breaks := false
@@ -237,7 +321,7 @@ func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 			prevBreaks = false
 			continue
 		case !prevBreaks && !breaks:
-			if sep := boundaryDoc(prev, g, kind, depth, false, s.caseBody); sep != nil {
+			if sep := boundary(false); sep != nil {
 				words = append(words, sep)
 				words = append(words, contents...)
 			} else {
@@ -246,7 +330,7 @@ func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 			continue
 		default:
 			flush()
-			if sep := boundaryDoc(prev, g, kind, depth, true, s.caseBody); sep != nil {
+			if sep := boundary(true); sep != nil {
 				parts = append(parts, sep)
 			}
 		}
@@ -266,6 +350,25 @@ func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 func startsWithHazard(n parser.Node, caseBody bool) bool {
 	t, ok := n.(*parser.Text)
 	return ok && isLineStartHazard(textWords(t.Value)[0], caseBody)
+}
+
+// startsWithKeyword reports whether n is text starting with if, for or
+// switch followed by a space or the end of the text. Every text node starts
+// where a node is parsed, so the parser read it as text only because the
+// statement it starts did not parse: typically because its line ended
+// before the statement's opening brace. A newline after it is kept, so that
+// joining the next line to it cannot complete the statement.
+func startsWithKeyword(n parser.Node) bool {
+	t, ok := n.(*parser.Text)
+	if !ok {
+		return false
+	}
+	for _, kw := range []string{"if", "for", "switch"} {
+		if t.Value == kw || strings.HasPrefix(t.Value, kw+" ") || strings.HasPrefix(t.Value, kw+"\t") {
+			return true
+		}
+	}
+	return false
 }
 
 func isBlockElement(n parser.Node) bool {
@@ -614,6 +717,16 @@ func bodyEndDoc(nodes []parser.Node, next parser.Node, depth int) doc.Doc {
 func codeDoc(write func(w io.Writer, indent int) error) doc.Doc {
 	s := writeString(write, 0)
 	literal := verbatimNewlines(s)
+	if strings.HasSuffix(s, "\n }") && !literal[len(s)-3] {
+		// The padding before the closing brace of { expression }, on a
+		// line of its own after an expression ending in a newline, is not
+		// Go code, so it is not indentation to keep: the brace goes at the
+		// enclosing level.
+		return doc.Concat(codeDoc(func(w io.Writer, _ int) error {
+			_, err := io.WriteString(w, s[:len(s)-len("\n }")])
+			return err
+		}), doc.HardLine(), doc.Text("}"))
+	}
 	strip := commonIndent(s, literal)
 	var parts []doc.Doc
 	start := 0
@@ -783,10 +896,16 @@ func elementDoc(e *parser.Element, gluedBefore bool, depth int) doc.Doc {
 	first, last := children[0], children[len(children)-1]
 	closeTag := doc.Text("</" + e.Name + ">")
 	if _, isText := first.(*parser.Text); e.Name == "" && isText && !startsWithSpace(first) {
-		// Text glued to a lone < could be read as an element name.
+		// Text glued to a lone < could be read as an element name, so it
+		// goes on the next line, or after a space, which the parser drops,
+		// if it starts with a line-start hazard.
+		edge := doc.HardLine()
+		if startsWithHazard(first, false) {
+			edge = doc.Text(" ")
+		}
 		return doc.Concat(
 			openTag,
-			doc.Indent(doc.HardLine(), childrenDoc),
+			doc.Indent(edge, childrenDoc),
 			closingEdge(last, doc.HardLine()),
 			closeTag,
 		)
@@ -845,25 +964,36 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 		}
 		return doc.Concat(parts...)
 	case *parser.ExpressionAttribute:
-		return codeDoc(stableExpressionAttribute(a).Write)
+		return expressionAttributeDoc(a)
 	}
 	return codeDoc(a.Write)
 }
 
-// stableExpressionAttribute returns a, or a copy of it that Write writes as
-// a's Write output would be written once parsed again. Write formats a
-// multi-line expression as an element of a composite literal, so its single
-// line result can keep that literal's indentation, which the next pass
-// trims.
-func stableExpressionAttribute(a *parser.ExpressionAttribute) *parser.ExpressionAttribute {
+// expressionAttributeDoc is a as its Write writes it, made stable and
+// render-equivalent. Write formats a multi-line expression as an element of
+// a composite literal. When the result is a single line, it can keep that
+// literal's indentation, which the next pass trims, so a is written as its
+// Write output would be written once parsed again. And it drops a newline
+// at the edges of the expression, which in the generated code lays the
+// call around the expression out on lines of its own, so then the
+// expression is written as it is.
+func expressionAttributeDoc(a *parser.ExpressionAttribute) doc.Doc {
 	written := writeString(a.Write, 0)
 	prefix := a.Key.String() + "={ "
 	if strings.Contains(written, "\n") || !strings.HasPrefix(written, prefix) || !strings.HasSuffix(written, " }") {
-		return a
+		return codeDoc(a.Write)
+	}
+	v := a.Expression.Value
+	trimmed := strings.TrimSpace(v)
+	if strings.Contains(v[:strings.Index(v, trimmed)], "\n") || strings.Contains(v[strings.Index(v, trimmed)+len(trimmed):], "\n") {
+		return codeDoc(func(w io.Writer, _ int) error {
+			_, err := io.WriteString(w, a.Key.String()+"={"+v+"}")
+			return err
+		})
 	}
 	c := a.Copy().(*parser.ExpressionAttribute)
 	c.Expression.Value = written[len(prefix) : len(written)-len(" }")]
-	return c
+	return codeDoc(c.Write)
 }
 
 // trimExpressionKey returns a, or a copy of it whose expression key has no
@@ -919,8 +1049,10 @@ func hasBlockChild(children []parser.Node) bool {
 }
 
 // openingEdge is the break just inside an opening tag before first.
+// A line must not start with a line-start hazard, so text starting with one
+// stays on the line of the opening tag, glued to it.
 func openingEdge(first parser.Node, line doc.Doc) doc.Doc {
-	if startsWithSpace(first) {
+	if startsWithSpace(first) || startsWithHazard(first, false) {
 		return doc.Concat()
 	}
 	return line

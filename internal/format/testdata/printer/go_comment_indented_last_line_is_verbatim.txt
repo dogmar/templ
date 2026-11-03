@@ -1,0 +1,10 @@
+-- in --
+package A
+
+//
+ //0
+-- out --
+package A
+
+//
+ //0
