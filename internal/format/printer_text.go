@@ -81,23 +81,30 @@ func endsWithSpaceRune(s string) bool {
 	return isWhitespaceRune(r)
 }
 
+// statementKeywords are the keywords that start a templ statement: text
+// starting with one followed by a space would be parsed as that statement.
+var statementKeywords = []string{"if", "for", "switch"}
+
+// startsWithWord reports whether s is one of words, or starts with one
+// followed by a space or a tab.
+func startsWithWord(s string, words ...string) bool {
+	for _, w := range words {
+		if s == w || strings.HasPrefix(s, w+" ") || strings.HasPrefix(s, w+"\t") {
+			return true
+		}
+	}
+	return false
+}
+
 // isLineStartHazard reports whether word would be parsed as templ syntax if
 // it began a line. In a switch case body (caseBody), a line starting with
 // case or default also starts the next case.
 func isLineStartHazard(word string, caseBody bool) bool {
-	keywords := []string{"if", "for", "switch"}
-	if caseBody {
-		if strings.HasPrefix(word, "default") {
-			return true
-		}
-		keywords = append(keywords, "case")
+	if caseBody && (strings.HasPrefix(word, "default") || startsWithWord(word, "case")) {
+		return true
 	}
-	for _, kw := range keywords {
-		if word == kw || strings.HasPrefix(word, kw+" ") || strings.HasPrefix(word, kw+"\t") {
-			return true
-		}
-	}
-	return strings.HasPrefix(word, "@") || strings.HasPrefix(word, "//") || strings.HasPrefix(word, "/*")
+	return startsWithWord(word, statementKeywords...) ||
+		strings.HasPrefix(word, "@") || strings.HasPrefix(word, "//") || strings.HasPrefix(word, "/*")
 }
 
 // startsWithSpace reports whether n is text starting with a whitespace

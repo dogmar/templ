@@ -99,15 +99,16 @@ func writeCSSTemplate(w io.Writer, css *parser.CSSTemplate) error {
 	}
 	for _, p := range css.Properties {
 		e, ok := p.(*parser.ExpressionCSSProperty)
-		if !ok || !strings.ContainsAny(edgeWhitespace(e.Value.Expression.Value), "\n") {
+		var leading, trimmed, trailing string
+		if ok {
+			leading, trimmed, trailing = splitEdges(e.Value.Expression.Value)
+		}
+		if !ok || !strings.Contains(leading+trailing, "\n") {
 			if err := p.Write(w, 1); err != nil {
 				return err
 			}
 			continue
 		}
-		v := e.Value.Expression.Value
-		trimmed := strings.TrimSpace(v)
-		leading, trailing := v[:strings.Index(v, trimmed)], v[strings.Index(v, trimmed)+len(trimmed):]
 		edge := func(ws string) string {
 			if n := strings.Count(ws, "\n"); n > 0 {
 				return strings.Repeat("\n", n)
@@ -122,11 +123,12 @@ func writeCSSTemplate(w io.Writer, css *parser.CSSTemplate) error {
 	return err
 }
 
-// edgeWhitespace is the whitespace at the start and end of v.
-func edgeWhitespace(v string) string {
-	trimmed := strings.TrimSpace(v)
+// splitEdges splits v into its leading whitespace, the rest trimmed of
+// whitespace, and its trailing whitespace.
+func splitEdges(v string) (leading, trimmed, trailing string) {
+	trimmed = strings.TrimSpace(v)
 	i := strings.Index(v, trimmed)
-	return v[:i] + v[i+len(trimmed):]
+	return v[:i], trimmed, v[i+len(trimmed):]
 }
 
 // scriptParameterNames is the parameter list the generator writes for the
@@ -362,15 +364,7 @@ func startsWithHazard(n parser.Node, caseBody bool) bool {
 // joining the next line to it cannot complete the statement.
 func startsWithKeyword(n parser.Node) bool {
 	t, ok := n.(*parser.Text)
-	if !ok {
-		return false
-	}
-	for _, kw := range []string{"if", "for", "switch"} {
-		if t.Value == kw || strings.HasPrefix(t.Value, kw+" ") || strings.HasPrefix(t.Value, kw+"\t") {
-			return true
-		}
-	}
-	return false
+	return ok && startsWithWord(t.Value, statementKeywords...)
 }
 
 func isBlockElement(n parser.Node) bool {
@@ -579,9 +573,7 @@ func multilineAsReparsed(n *parser.GoCode) *parser.GoCode {
 // that the code's first line and closing line do not count as its
 // indentation (see codeDoc).
 func stringExpressionDoc(n *parser.StringExpression) doc.Doc {
-	v := n.Expression.Value
-	trimmed := strings.TrimSpace(v)
-	leading, trailing := v[:strings.Index(v, trimmed)], v[strings.Index(v, trimmed)+len(trimmed):]
+	leading, trimmed, trailing := splitEdges(n.Expression.Value)
 	edge := func(ws string) doc.Doc {
 		switch strings.Count(ws, "\n") {
 		case 0:
@@ -1031,8 +1023,7 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 func expressionAttributeDoc(a *parser.ExpressionAttribute) doc.Doc {
 	written := writeString(a.Write, 0)
 	v := a.Expression.Value
-	trimmed := strings.TrimSpace(v)
-	leading, trailing := v[:strings.Index(v, trimmed)], v[strings.Index(v, trimmed)+len(trimmed):]
+	leading, trimmed, trailing := splitEdges(v)
 	edgeNewline := strings.Contains(leading, "\n") || strings.Contains(trailing, "\n")
 	verbatim := codeDoc(func(w io.Writer, _ int) error {
 		_, err := io.WriteString(w, a.Key.String()+"={"+v+"}")
