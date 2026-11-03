@@ -94,3 +94,17 @@ func TestRestCommandsAffectFit(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestHardLineInFlatFillRemeasuresFollowingGroup(t *testing.T) {
+	d := Fill(Concat(Text("a"), HardLine(), Group(Text("xxxx"), Line(), Text("yyyy"))), Line(), Text("z"))
+	if got, want := Print(d, 6), "a\nxxxx\nyyyy z"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestHardLineInFillContentBreaksEnclosingGroup(t *testing.T) {
+	d := Group(Text("a"), Line(), Fill(Concat(Text("b"), HardLine(), Text("c")), Line(), Text("d")))
+	if got, want := Print(d, 100), "a\nb\nc d"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

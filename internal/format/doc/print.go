@@ -20,6 +20,7 @@ type cmd struct {
 func Print(d Doc, width int) string {
 	var out []byte
 	pos := 0
+	shouldRemeasure := false // a hard line was printed in flat mode
 	stack := []cmd{{0, modeBreak, d}}
 
 	newline := func(ind int) {
@@ -47,19 +48,22 @@ func Print(d Doc, width int) string {
 		case line:
 			switch {
 			case d.kind == lineBlank:
+				shouldRemeasure = shouldRemeasure || c.mode == modeFlat
 				newline(0)
 				newline(c.indent)
 			case d.kind == lineHard || c.mode == modeBreak:
+				shouldRemeasure = shouldRemeasure || c.mode == modeFlat
 				newline(c.indent)
 			case d.kind == lineSpace:
 				out = append(out, ' ')
 				pos++
 			}
 		case group:
-			if c.mode == modeFlat && !d.hard {
+			if c.mode == modeFlat && !d.hard && !shouldRemeasure {
 				stack = pushReversed(stack, c.indent, modeFlat, d.children)
 				break
 			}
+			shouldRemeasure = false
 			m := modeBreak
 			if !d.hard && fits(cmd{c.indent, modeFlat, concat{d.children, false}}, stack, width-pos, false) {
 				m = modeFlat
