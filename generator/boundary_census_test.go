@@ -73,8 +73,11 @@ var censusGaps = []string{"", " ", "   ", "\n", "\n\n"}
 type censusContext struct {
 	name            string
 	boundaryContext parser.BoundaryContext
-	body            func(prev, next *censusKind, gap string) string
-	nodes           func(p *parser.Element) (prev, next parser.Node, ok bool)
+	// nilNext is true if the generator passes nil as next, rather than the
+	// next node found by nodes.
+	nilNext bool
+	body    func(prev, next *censusKind, gap string) string
+	nodes   func(p *parser.Element) (prev, next parser.Node, ok bool)
 	// pairs lists the (prev, next) kind pairs used by this context.
 	pairs func() [][2]*censusKind
 }
@@ -153,32 +156,23 @@ var censusContexts = []censusContext{
 			return pairs
 		},
 	},
-	{
-		// prev is the last child of an if body; next is the node after the if.
-		// The generator drops a body's trailing *Whitespace node, so the gap
-		// is classified as in an element.
-		name:            "statementBodyEnd",
-		boundaryContext: parser.BoundaryInElement,
-		body: func(prev, next *censusKind, gap string) string {
-			return "<p>if x {\n" + prev.src + gap + "}\n" + next.src + "\n</p>"
-		},
-		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
-			nw := nonWhitespace(p.Children)
-			if len(nw) != 2 {
-				return nil, nil, false
-			}
-			ie, ok := nw[0].(*parser.IfExpression)
-			if !ok {
-				return nil, nil, false
-			}
-			then := nonWhitespace(ie.Then)
-			if len(then) != 1 {
-				return nil, nil, false
-			}
-			return then[0], nw[1], true
-		},
-		pairs: allPairs,
-	},
+	// prev is the only child of a body, and next is the node the generator
+	// passes to that body: the statement's next sibling, or nil for the
+	// children of @c() { ... }. The generator drops a body's trailing
+	// *Whitespace node, so the gap is classified as in an element.
+	bodyEndContext("statementBodyEnd", "if x {\n", "}", ifThen, true),
+	bodyEndContext("thenBeforeElse", "if x {\n", "} else {\n<i>z</i>\n}", ifThen, true),
+	bodyEndContext("elseIfEnd", "if x {\n<i>z</i>\n} else if x {\n", "}", ifElseIfThen, true),
+	bodyEndContext("elseEnd", "if x {\n<i>z</i>\n} else {\n", "}", ifElse, true),
+	bodyEndContext("forBodyEnd", "for _, v := range xs {\n", "}", forBody, true),
+	bodyEndContext("switchCaseEnd", "switch x {\ncase 1:\n", "case 2:\n<i>z</i>\n}", switchFirstCase, true),
+	bodyEndContext("switchLastCaseEnd", "switch x {\ncase 1:\n", "}", switchFirstCase, true),
+	// The if is the last node of an outer body, so the generator passes the
+	// outer body's next to the if body.
+	bodyEndContext("nestedInIfEnd", "if x {\nif x {\n", "}\n}", nestedBody(ifThen, ifThen), true),
+	bodyEndContext("nestedInForEnd", "for _, v := range xs {\nif x {\n", "}\n}", nestedBody(forBody, ifThen), true),
+	bodyEndContext("nestedInSwitchCaseEnd", "switch x {\ncase 1:\nif x {\n", "}\n}", nestedBody(switchFirstCase, ifThen), true),
+	bodyEndContext("nestedInCallChildrenEnd", "@c() {\nif x {\n", "}\n}", nestedBody(callChildren, ifThen), false),
 	{
 		// Siblings inside an if body, where the generator only strips the
 		// body's leading and trailing whitespace nodes.
@@ -204,6 +198,102 @@ var censusContexts = []censusContext{
 		},
 		pairs: allPairs,
 	},
+}
+
+// bodyOf returns the body of a statement that holds the gap.
+type bodyOf func(parser.Node) ([]parser.Node, bool)
+
+func ifThen(n parser.Node) ([]parser.Node, bool) {
+	ie, ok := n.(*parser.IfExpression)
+	if !ok {
+		return nil, false
+	}
+	return ie.Then, true
+}
+
+func ifElseIfThen(n parser.Node) ([]parser.Node, bool) {
+	ie, ok := n.(*parser.IfExpression)
+	if !ok || len(ie.ElseIfs) != 1 {
+		return nil, false
+	}
+	return ie.ElseIfs[0].Then, true
+}
+
+func ifElse(n parser.Node) ([]parser.Node, bool) {
+	ie, ok := n.(*parser.IfExpression)
+	if !ok {
+		return nil, false
+	}
+	return ie.Else, true
+}
+
+func forBody(n parser.Node) ([]parser.Node, bool) {
+	fe, ok := n.(*parser.ForExpression)
+	if !ok {
+		return nil, false
+	}
+	return fe.Children, true
+}
+
+func switchFirstCase(n parser.Node) ([]parser.Node, bool) {
+	se, ok := n.(*parser.SwitchExpression)
+	if !ok || len(se.Cases) == 0 {
+		return nil, false
+	}
+	return se.Cases[0].Children, true
+}
+
+func callChildren(n parser.Node) ([]parser.Node, bool) {
+	tee, ok := n.(*parser.TemplElementExpression)
+	if !ok {
+		return nil, false
+	}
+	return tee.Children, true
+}
+
+// nestedBody returns the inner body of the only statement in the outer body.
+func nestedBody(outer, inner bodyOf) bodyOf {
+	return func(n parser.Node) ([]parser.Node, bool) {
+		children, ok := outer(n)
+		if !ok {
+			return nil, false
+		}
+		nw := nonWhitespace(children)
+		if len(nw) != 1 {
+			return nil, false
+		}
+		return inner(nw[0])
+	}
+}
+
+// bodyEndContext builds a context where prev is the only node of a body in
+// the statement before+prev+gap+after, and the statement is followed by next.
+// If nextIsSibling is false, the generator passes nil as the body's next.
+func bodyEndContext(name, before, after string, body bodyOf, nextIsSibling bool) censusContext {
+	return censusContext{
+		name:            name,
+		boundaryContext: parser.BoundaryInElement,
+		nilNext:         !nextIsSibling,
+		body: func(prev, next *censusKind, gap string) string {
+			return "<p>" + before + prev.src + gap + after + "\n" + next.src + "\n</p>"
+		},
+		nodes: func(p *parser.Element) (parser.Node, parser.Node, bool) {
+			nw := nonWhitespace(p.Children)
+			if len(nw) != 2 {
+				return nil, nil, false
+			}
+			children, ok := body(nw[0])
+			if !ok {
+				return nil, nil, false
+			}
+			inner := nonWhitespace(children)
+			if len(inner) != 1 {
+				return nil, nil, false
+			}
+			return inner[0], nw[1], true
+		},
+		pairs: allPairs,
+	}
 }
 
 const censusTemplate = "package x\n\ntempl T(x bool, xs []string, s string) {\n%s\n}\n"
@@ -257,6 +347,9 @@ func renderCensusGap(ctx censusContext, prev, next *censusKind, gap string) (cg 
 	if t, ok := nn.(*parser.Text); ok && strings.TrimLeft(t.Value, " \t\n") != t.Value {
 		cg.reason = "gap absorbed into the text value"
 		return cg
+	}
+	if ctx.nilNext {
+		nn = nil
 	}
 	cg.prev, cg.next = pn, nn
 	if cg.rendered, err = rendercheck.Render(tf); err != nil {

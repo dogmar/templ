@@ -53,11 +53,22 @@ const (
 // whitespace written in the gap and ctx is the kind of node list holding them.
 //
 // prev and next are the nodes either side of the gap, not *Whitespace nodes.
-// When prev is the last node in an if, for or switch body, next is the node
-// after the statement, and ctx is BoundaryInElement, because the generator
-// drops the body's trailing *Whitespace node. next is nil at an
-// element's closing edge or the end of a template, and prev is nil at an
-// element's opening edge.
+// prev is nil at an element's opening edge, and next is nil at an element's
+// closing edge or the end of a template.
+//
+// When prev is the last node in a body (if, else if, else, for or switch
+// case), next is the node the generator passes to that body: the statement's
+// next sibling or, when the statement is itself the last node of an outer
+// body, that outer body's next, recursively. The children of a templ element
+// expression (@c() { ... }) end with a nil next. At a body's end, ctx is
+// BoundaryInElement, because the generator drops the body's trailing
+// *Whitespace node.
+//
+// If the statement is followed by a *Whitespace node in a body, the
+// generator's next is that *Whitespace node, so the gap at the end of the
+// statement's body never renders. Given the following non-whitespace node
+// instead, ClassifyBoundary may return glued, soft or fixed, which is safe:
+// keeping the gap's whitespace as it is never changes the rendered output.
 //
 // ws only picks between BoundaryGlued (SpaceNone) and BoundarySoft at
 // boundaries that render.
