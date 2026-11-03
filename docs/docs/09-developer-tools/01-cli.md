@@ -127,7 +127,7 @@ Whitespace between elements can be significant in HTML, so `templ fmt` keeps it.
 
 Here, `wrapping<span` has no space between the text and the element. The line break before `>` is a tag break. It means there is no space at that point. A `><` split across lines means the same thing: the elements touch.
 
-Whitespace in `<pre>` and `<textarea>` is literal, so `templ fmt` never re-indents it. To write literal whitespace in them, use a string expression.
+templ collapses whitespace inside `<pre>` and `<textarea>` like any other element, so `templ fmt` formats them normally. To render literal whitespace in them, use a string expression.
 
 ```templ
 <pre>{ "  a\n  b" }</pre>
