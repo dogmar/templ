@@ -70,3 +70,29 @@ func TestMismatchOnWhitespaceOnlyDifference(t *testing.T) {
 		t.Errorf("expected non-empty mismatch, got %+v", me)
 	}
 }
+
+func TestEquivalentIgnoresGoCommentText(t *testing.T) {
+	before := parse(t, "package x\n\n// one `` two\nvar v = 1\n\ntempl T() {\n<p>a</p>\n}\n")
+	after := parse(t, "package x\n\n// one `` two\n// changed\nvar v = 1 // trailing\n\ntempl T() {\n<p>a</p>\n}\n")
+	if err := Equivalent(before, after); err != nil {
+		t.Fatalf("expected equivalent, got %v", err)
+	}
+}
+
+func TestMismatchOnGoDirectiveDifference(t *testing.T) {
+	tests := map[string][2]string{
+		"go:embed": {"//go:embed a.txt\nvar f string", "//go:embed b.txt\nvar f string"},
+		"go:build": {"//go:build linux\n\nvar v = 1", "//go:build darwin\n\nvar v = 1"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			before := parse(t, "package x\n\n"+tt[0]+"\n\ntempl T() {\n<p>a</p>\n}\n")
+			after := parse(t, "package x\n\n"+tt[1]+"\n\ntempl T() {\n<p>a</p>\n}\n")
+			err := Equivalent(before, after)
+			var me *MismatchError
+			if !errors.As(err, &me) {
+				t.Fatalf("expected *MismatchError, got %v", err)
+			}
+		})
+	}
+}

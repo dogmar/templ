@@ -2,6 +2,8 @@ package format
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/a-h/templ/internal/format/doc"
 	parser "github.com/a-h/templ/parser/v2"
@@ -41,14 +43,17 @@ func textJoin(prev parser.Node, next *parser.Text, g gap, caseBody bool) doc.Doc
 	return doc.Line()
 }
 
-// textWords splits s at each single space between two other characters.
-// A run of two or more spaces, or a tab, keeps its neighbours in one word,
-// and leading and trailing spaces stay on the first and last word.
+// textWords splits s at each single space between two non-space characters.
+// A run of two or more spaces, or a space next to a tab or another
+// whitespace rune, keeps its neighbours in one word, and leading and
+// trailing spaces stay on the first and last word. The parser reads any
+// whitespace run that contains a newline as one trailing space, so no word
+// may start or end with whitespace, or a line break beside it would drop it.
 func textWords(s string) []string {
 	var words []string
 	start := 0
 	for i := 1; i < len(s)-1; i++ {
-		if s[i] == ' ' && !isSpaceOrTab(s[i-1]) && !isSpaceOrTab(s[i+1]) {
+		if s[i] == ' ' && !endsWithSpaceRune(s[:i]) && !startsWithSpaceRune(s[i+1:]) {
 			words = append(words, s[start:i])
 			start = i + 1
 		}
@@ -56,7 +61,17 @@ func textWords(s string) []string {
 	return append(words, s[start:])
 }
 
-func isSpaceOrTab(b byte) bool { return b == ' ' || b == '\t' }
+// startsWithSpaceRune reports whether s starts with a whitespace rune.
+func startsWithSpaceRune(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.IsSpace(r)
+}
+
+// endsWithSpaceRune reports whether s ends with a whitespace rune.
+func endsWithSpaceRune(s string) bool {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return unicode.IsSpace(r)
+}
 
 // isLineStartHazard reports whether word would be parsed as templ syntax if
 // it began a line. In a switch case body (caseBody), a line starting with
@@ -77,14 +92,15 @@ func isLineStartHazard(word string, caseBody bool) bool {
 	return strings.HasPrefix(word, "@") || strings.HasPrefix(word, "//") || strings.HasPrefix(word, "/*")
 }
 
-// startsWithSpace reports whether n is text starting with a space or tab.
+// startsWithSpace reports whether n is text starting with a whitespace
+// rune, such as a space, a tab or a form feed.
 func startsWithSpace(n parser.Node) bool {
 	t, ok := n.(*parser.Text)
-	return ok && t.Value != "" && isSpaceOrTab(t.Value[0])
+	return ok && startsWithSpaceRune(t.Value)
 }
 
-// endsWithSpace reports whether n is text ending with a space or tab.
+// endsWithSpace reports whether n is text ending with a whitespace rune.
 func endsWithSpace(n parser.Node) bool {
 	t, ok := n.(*parser.Text)
-	return ok && t.Value != "" && isSpaceOrTab(t.Value[len(t.Value)-1])
+	return ok && endsWithSpaceRune(t.Value)
 }

@@ -22,11 +22,18 @@ import (
 func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, n := range t.Header {
-		if err := writeGoExpression(&buf, n); err != nil {
+		if err := n.Write(&buf, 0); err != nil {
 			return nil, err
 		}
 	}
-	if t.Package.Expression.Value == "" && len(t.Nodes) == 0 {
+	// A top-level Go expression that is only whitespace, such as a stray
+	// Unicode line separator, generates nothing, and writing it would add a
+	// blank line on every pass.
+	nodes := slices.DeleteFunc(slices.Clone(t.Nodes), func(n parser.TemplateFileNode) bool {
+		e, ok := n.(*parser.TemplateFileGoExpression)
+		return ok && strings.TrimSpace(e.Expression.Value) == ""
+	})
+	if t.Package.Expression.Value == "" && len(nodes) == 0 {
 		// A file with no package and no templates has nothing to separate,
 		// so keep only the header, trimmed. Otherwise every pass would add
 		// blank lines.
@@ -41,17 +48,10 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 	// printed clause end in a CRLF and lose it on the next pass.
 	buf.WriteString(strings.TrimRight(t.Package.Expression.Value, " \t\r"))
 	buf.WriteString("\n\n")
-	for i, n := range t.Nodes {
+	for i, n := range nodes {
 		var err error
 		if ht, ok := n.(*parser.HTMLTemplate); ok {
 			err = printHTMLTemplate(&buf, ht, width)
-		} else if e, ok := n.(*parser.TemplateFileGoExpression); ok && opensComment(t.Package.Expression.Value) {
-			// The block comment the package clause opens continues into
-			// the Go code after it, which is then comment text that
-			// formatting would change.
-			_, err = io.WriteString(&buf, e.Expression.Value)
-		} else if ok {
-			err = writeGoExpression(&buf, e)
 		} else if st, ok := n.(*parser.ScriptTemplate); ok {
 			err = writeScriptTemplate(&buf, st)
 		} else {
@@ -60,7 +60,7 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		buf.WriteString(templateFileNodeSeparator(t.Nodes, i))
+		buf.WriteString(templateFileNodeSeparator(nodes, i))
 	}
 	return buf.Bytes(), nil
 }
@@ -92,50 +92,6 @@ func scriptParameterNames(parameters string) string {
 		names = append(names, strings.TrimSpace(strings.Split(strings.TrimSpace(p), " ")[0]))
 	}
 	return strings.Join(names, ", ")
-}
-
-// writeGoExpression writes e as its Write does, unless that would change
-// how the generated code is formatted, in which case e is written as it is.
-// That happens when e contains a carriage return: formatting e alone
-// removes carriage returns from its comments, and in the generated code the
-// comment //\r0 stays //0 but //0 becomes the doc comment // 0. It also
-// happens when formatting changes whether e's last line starts with //:
-// the generator follows such a line with a newline rather than a blank
-// line, which makes a comment a doc comment.
-func writeGoExpression(w io.Writer, e *parser.TemplateFileGoExpression) error {
-	var buf bytes.Buffer
-	if err := e.Write(&buf, 0); err != nil {
-		return err
-	}
-	written := buf.String()
-	if strings.Contains(e.Expression.Value, "\r") || endsWithLineComment(written) != endsWithLineComment(e.Expression.Value) {
-		written = e.Expression.Value
-	}
-	_, err := io.WriteString(w, written)
-	return err
-}
-
-// opensComment reports whether s, scanned as Go, ends inside a block
-// comment.
-func opensComment(s string) bool {
-	opens := false
-	fset := token.NewFileSet()
-	var sc scanner.Scanner
-	sc.Init(fset.AddFile("", fset.Base(), len(s)), []byte(s), func(_ token.Position, msg string) {
-		opens = opens || msg == "comment not terminated"
-	}, scanner.ScanComments)
-	for {
-		if _, tok, _ := sc.Scan(); tok == token.EOF {
-			return opens
-		}
-	}
-}
-
-// endsWithLineComment reports whether the last line of s, ignoring a final
-// newline, starts with //.
-func endsWithLineComment(s string) bool {
-	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
-	return strings.HasPrefix(lines[len(lines)-1], "//")
 }
 
 // templateFileNodeSeparator is the whitespace written after the top-level
@@ -563,22 +519,35 @@ func multilineIfFormattedOnLines(n *parser.GoCode) *parser.GoCode {
 // stringExpressionDoc is n as its Write writes it, except that the newlines
 // at the edges of its expression are kept. The expression is Go code in the
 // generated code, where a newline after the opening parenthesis of a call or
-// after a trailing comma lays the call out on lines of its own.
+// after a trailing comma lays the call out on lines of its own. The braces
+// on lines of their own go at the enclosing level, outside the code, so
+// that the code's first line and closing line do not count as its
+// indentation (see codeDoc).
 func stringExpressionDoc(n *parser.StringExpression) doc.Doc {
 	v := n.Expression.Value
 	trimmed := strings.TrimSpace(v)
-	edge := func(ws string) string {
-		if newlines := strings.Count(ws, "\n"); newlines > 0 {
-			return strings.Repeat("\n", newlines)
+	leading, trailing := v[:strings.Index(v, trimmed)], v[strings.Index(v, trimmed)+len(trimmed):]
+	edge := func(ws string) doc.Doc {
+		switch strings.Count(ws, "\n") {
+		case 0:
+			return doc.Text(" ")
+		case 1:
+			return doc.HardLine()
 		}
-		return " "
+		return doc.BlankLine()
 	}
-	before := edge(v[:strings.Index(v, trimmed)])
-	after := edge(v[strings.Index(v, trimmed)+len(trimmed):])
-	return codeDoc(func(w io.Writer, _ int) error {
-		_, err := io.WriteString(w, "{"+before+trimmed+after+"}")
+	code := trimmed
+	if !strings.Contains(leading, "\n") {
+		code = "{ " + trimmed
+	}
+	parts := []doc.Doc{codeDoc(func(w io.Writer, _ int) error {
+		_, err := io.WriteString(w, code)
 		return err
-	})
+	})}
+	if strings.Contains(leading, "\n") {
+		parts = append([]doc.Doc{doc.Text("{"), edge(leading)}, parts...)
+	}
+	return doc.Concat(append(parts, edge(trailing), doc.Text("}"))...)
 }
 
 // headerDoc is the source line of a statement, as its Write writes it: Go
@@ -587,27 +556,37 @@ func headerDoc(s string) doc.Doc {
 	return linesDoc(s, doc.LiteralLine())
 }
 
+// ifDoc lays out an if statement with each body indented under its header.
+// The parser only reads else after a closing brace at the start of its
+// line when the body before it is empty, so then the brace is not
+// indented.
 func ifDoc(n *parser.IfExpression, next parser.Node, depth int) doc.Doc {
 	parts := []doc.Doc{
 		headerDoc("if " + n.Expression.Value + " {"),
 		bodyDoc(n.Then, next, depth, false),
-		bodyEndDoc(n.Then, next, depth),
 	}
+	before := n.Then
 	for _, e := range n.ElseIfs {
 		parts = append(parts,
+			bodyEndDoc(before, next, depth),
 			headerDoc("} else if "+e.Expression.Value+" {"),
 			bodyDoc(e.Then, next, depth, false),
-			bodyEndDoc(e.Then, next, depth),
 		)
+		before = e.Then
 	}
 	if len(n.Else) > 0 {
+		end := bodyEndDoc(before, next, depth)
+		if len(nonWhitespace(before)) == 0 {
+			end = doc.LiteralLine()
+		}
 		parts = append(parts,
+			end,
 			doc.Text("} else {"),
 			bodyDoc(n.Else, next, depth, false),
-			bodyEndDoc(n.Else, next, depth),
 		)
+		before = n.Else
 	}
-	return doc.Concat(append(parts, doc.Text("}"))...)
+	return doc.Concat(append(parts, bodyEndDoc(before, next, depth), doc.Text("}"))...)
 }
 
 // switchDoc lays out a switch with each case indented under it, and each
@@ -969,27 +948,38 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 	return codeDoc(a.Write)
 }
 
-// expressionAttributeDoc is a as its Write writes it, made stable and
-// render-equivalent. Write formats a multi-line expression as an element of
-// a composite literal. When the result is a single line, it can keep that
-// literal's indentation, which the next pass trims, so a is written as its
-// Write output would be written once parsed again. And it drops a newline
-// at the edges of the expression, which in the generated code lays the
-// call around the expression out on lines of its own, so then the
-// expression is written as it is.
+// expressionAttributeDoc is a, written as its Write does, with three
+// exceptions that keep the value as the next pass reads it. Write formats
+// a multi-line expression as the element of a composite literal. When the
+// result is a single line, it can keep that literal's indentation, which
+// the next pass trims, so a is written as its Write output would be
+// written once parsed again. The parser keeps the whitespace after a
+// trailing comma as part of the value, and a newline there lays the call
+// around the expression in the generated code out on lines of its own, so
+// when Write would add or drop a newline at an edge of the value, the
+// value is written as it is.
 func expressionAttributeDoc(a *parser.ExpressionAttribute) doc.Doc {
 	written := writeString(a.Write, 0)
-	prefix := a.Key.String() + "={ "
-	if strings.Contains(written, "\n") || !strings.HasPrefix(written, prefix) || !strings.HasSuffix(written, " }") {
-		return codeDoc(a.Write)
-	}
 	v := a.Expression.Value
 	trimmed := strings.TrimSpace(v)
-	if strings.Contains(v[:strings.Index(v, trimmed)], "\n") || strings.Contains(v[strings.Index(v, trimmed)+len(trimmed):], "\n") {
-		return codeDoc(func(w io.Writer, _ int) error {
-			_, err := io.WriteString(w, a.Key.String()+"={"+v+"}")
-			return err
-		})
+	leading, trailing := v[:strings.Index(v, trimmed)], v[strings.Index(v, trimmed)+len(trimmed):]
+	edgeNewline := strings.Contains(leading, "\n") || strings.Contains(trailing, "\n")
+	verbatim := codeDoc(func(w io.Writer, _ int) error {
+		_, err := io.WriteString(w, a.Key.String()+"={"+v+"}")
+		return err
+	})
+	if strings.Contains(written, "\n") {
+		if strings.HasSuffix(trimmed, ",") && !edgeNewline {
+			return verbatim
+		}
+		return codeDoc(a.Write)
+	}
+	prefix := a.Key.String() + "={ "
+	if !strings.HasPrefix(written, prefix) || !strings.HasSuffix(written, " }") {
+		return codeDoc(a.Write)
+	}
+	if edgeNewline {
+		return verbatim
 	}
 	c := a.Copy().(*parser.ExpressionAttribute)
 	c.Expression.Value = written[len(prefix) : len(written)-len(" }")]

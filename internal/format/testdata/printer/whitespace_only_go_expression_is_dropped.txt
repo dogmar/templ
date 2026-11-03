@@ -1,8 +1,11 @@
 -- in --
 package A
-
-//0
+
+templ A() {
+}
+
 -- out --
 package A
 
-//0
+templ A() {
+}
