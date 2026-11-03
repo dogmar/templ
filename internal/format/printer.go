@@ -672,13 +672,17 @@ func callDoc(n *parser.TemplElementExpression, depth int) doc.Doc {
 	write := (&parser.TemplElementExpression{Expression: n.Expression}).Write
 	call := verbatimDoc(write, depth)
 	written := strings.TrimPrefix(writeString(write, 0), "@")
+	rewrite := (&parser.TemplElementExpression{Expression: parser.Expression{Value: written}}).Write
+	rewritten := strings.TrimPrefix(writeString(rewrite, 0), "@")
 	_, gofmtErr := goformat.Source([]byte(n.Expression.Value))
-	if gofmtErr != nil || !slices.Equal(verbatimTokens(written), verbatimTokens(n.Expression.Value)) {
+	if gofmtErr != nil || rewritten != written || !slices.Equal(verbatimTokens(written), verbatimTokens(n.Expression.Value)) {
 		// The call is kept as written if Write would change it on every
 		// pass or change what it renders. Write indents each following
-		// line further when gofmt cannot format the expression, and drops
-		// the spaces of blank lines, even those inside raw strings, which
-		// are kept in the generated code.
+		// line further when gofmt cannot format the expression, and gofmt
+		// is not always a fixed point (it can drop a trailing comma's
+		// newline only on its second pass). Write also drops the spaces of
+		// blank lines, even those inside raw strings, which are kept in the
+		// generated code.
 		call = linesDoc("@"+n.Expression.Value, doc.LiteralLine())
 	}
 	if len(n.Children) == 0 {

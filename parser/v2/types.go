@@ -1321,7 +1321,8 @@ func (tee *TemplElementExpression) Write(w io.Writer, indent int) error {
 		if len(bytes.TrimSpace(sourceLines[i])) == 0 {
 			continue
 		}
-		if string(sourceLines[i]) != string(reformattedSourceLines[i]) {
+		// Re-formatting can join lines, leaving fewer lines than the source.
+		if i >= len(reformattedSourceLines) || string(sourceLines[i]) != string(reformattedSourceLines[i]) {
 			if _, err := w.Write(sourceLines[i]); err != nil {
 				return err
 			}
