@@ -62,6 +62,8 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 			err = writeScriptTemplate(&buf, st)
 		} else if css, ok := n.(*parser.CSSTemplate); ok {
 			err = writeCSSTemplate(&buf, css)
+		} else if e, ok := n.(*parser.TemplateFileGoExpression); ok {
+			err = writeGoExpression(&buf, e)
 		} else {
 			err = n.Write(&buf, 0)
 		}
@@ -71,6 +73,31 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 		buf.WriteString(templateFileNodeSeparator(nodes, i))
 	}
 	return buf.Bytes(), nil
+}
+
+// writeGoExpression writes e as its Write does, repeated until the output
+// stops changing. gofmt is not a fixed point on some code, such as an empty
+// statement in a one-line block ({;} becomes {  } and then {}), so a single
+// pass would leave output the next run changes again.
+func writeGoExpression(w io.Writer, e *parser.TemplateFileGoExpression) error {
+	var out bytes.Buffer
+	if err := e.Write(&out, 0); err != nil {
+		return err
+	}
+	for range 10 {
+		next := *e
+		next.Expression.Value = out.String()
+		var again bytes.Buffer
+		if err := next.Write(&again, 0); err != nil {
+			return err
+		}
+		if bytes.Equal(again.Bytes(), out.Bytes()) {
+			break
+		}
+		out = again
+	}
+	_, err := w.Write(out.Bytes())
+	return err
 }
 
 // writeScriptTemplate writes s as its Write does, unless formatting its

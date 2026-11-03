@@ -1,0 +1,8 @@
+-- in --
+package A
+
+func A(){;}
+-- out --
+package A
+
+func A() {}
