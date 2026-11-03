@@ -22,7 +22,7 @@ import (
 func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, n := range t.Header {
-		if err := n.Write(&buf, 0); err != nil {
+		if err := writeGoExpression(&buf, n); err != nil {
 			return nil, err
 		}
 	}
@@ -36,14 +36,17 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 		}
 		return out, nil
 	}
-	if err := t.Package.Write(&buf, 0); err != nil {
-		return nil, err
-	}
+	// The package clause runs to the end of its line, so it keeps a
+	// carriage return before a CRLF line ending, which would make the
+	// printed clause end in a CRLF and lose it on the next pass.
+	buf.WriteString(strings.TrimRight(t.Package.Expression.Value, " \t\r"))
 	buf.WriteString("\n\n")
 	for i, n := range t.Nodes {
 		var err error
 		if ht, ok := n.(*parser.HTMLTemplate); ok {
 			err = printHTMLTemplate(&buf, ht, width)
+		} else if e, ok := n.(*parser.TemplateFileGoExpression); ok {
+			err = writeGoExpression(&buf, e)
 		} else {
 			err = n.Write(&buf, 0)
 		}
@@ -53,6 +56,19 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 		buf.WriteString(templateFileNodeSeparator(t.Nodes, i))
 	}
 	return buf.Bytes(), nil
+}
+
+// writeGoExpression writes e as its Write does, unless e contains a
+// carriage return. Formatting e alone removes carriage returns from its
+// comments, which changes how the generated code is formatted: there, the
+// comment //\r0 stays //0 but //0 becomes the doc comment // 0. So e is
+// written as it is.
+func writeGoExpression(w io.Writer, e *parser.TemplateFileGoExpression) error {
+	if strings.Contains(e.Expression.Value, "\r") {
+		_, err := io.WriteString(w, e.Expression.Value)
+		return err
+	}
+	return e.Write(w, 0)
 }
 
 // templateFileNodeSeparator is the whitespace written after the top-level
@@ -518,10 +534,13 @@ func callDoc(n *parser.TemplElementExpression, depth int) doc.Doc {
 	write := (&parser.TemplElementExpression{Expression: n.Expression}).Write
 	call := verbatimDoc(write, depth)
 	written := strings.TrimPrefix(writeString(write, 0), "@")
-	if !slices.Equal(verbatimTokens(written), verbatimTokens(n.Expression.Value)) {
-		// Write drops the spaces of blank lines, even those inside raw
-		// strings, which are kept in the generated code, so the call is
-		// kept as written.
+	_, gofmtErr := goformat.Source([]byte(n.Expression.Value))
+	if gofmtErr != nil || !slices.Equal(verbatimTokens(written), verbatimTokens(n.Expression.Value)) {
+		// The call is kept as written if Write would change it on every
+		// pass or change what it renders. Write indents each following
+		// line further when gofmt cannot format the expression, and drops
+		// the spaces of blank lines, even those inside raw strings, which
+		// are kept in the generated code.
 		call = linesDoc("@"+n.Expression.Value, doc.LiteralLine())
 	}
 	if len(n.Children) == 0 {
@@ -825,8 +844,26 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 			parts = append(parts, attributeBlockDoc(a.Else)...)
 		}
 		return doc.Concat(parts...)
+	case *parser.ExpressionAttribute:
+		return codeDoc(stableExpressionAttribute(a).Write)
 	}
 	return codeDoc(a.Write)
+}
+
+// stableExpressionAttribute returns a, or a copy of it that Write writes as
+// a's Write output would be written once parsed again. Write formats a
+// multi-line expression as an element of a composite literal, so its single
+// line result can keep that literal's indentation, which the next pass
+// trims.
+func stableExpressionAttribute(a *parser.ExpressionAttribute) *parser.ExpressionAttribute {
+	written := writeString(a.Write, 0)
+	prefix := a.Key.String() + "={ "
+	if strings.Contains(written, "\n") || !strings.HasPrefix(written, prefix) || !strings.HasSuffix(written, " }") {
+		return a
+	}
+	c := a.Copy().(*parser.ExpressionAttribute)
+	c.Expression.Value = written[len(prefix) : len(written)-len(" }")]
+	return c
 }
 
 // trimExpressionKey returns a, or a copy of it whose expression key has no

@@ -73,6 +73,14 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 	if err != nil {
 		return nil, false, err
 	}
+	if hasLoneCarriageReturn(src) {
+		// A carriage return followed by a newline is a line ending, so
+		// moving a line break to just after a lone carriage return would
+		// turn it into one. Text keeps a lone carriage return as written,
+		// and so must every line break next to it, so the source is kept
+		// as it is.
+		return src, false, nil
+	}
 	if t.Package.Expression.Value == "" && len(t.Nodes) > 0 {
 		// Without a package clause, every line ending in a newline is read
 		// as header, so the nodes are the text of a last line with no
@@ -164,4 +172,15 @@ func calculateNodeDepth(e parser.Node, nodeToDepth map[parser.Node]int, depth in
 			calculateNodeDepth(child, nodeToDepth, depth+1)
 		}
 	}
+}
+
+// hasLoneCarriageReturn reports whether src has a carriage return that is
+// not part of a CRLF line ending.
+func hasLoneCarriageReturn(src []byte) bool {
+	for i, b := range src {
+		if b == '\r' && (i+1 == len(src) || src[i+1] != '\n') {
+			return true
+		}
+	}
+	return false
 }

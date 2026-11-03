@@ -1,0 +1,14 @@
+-- in --
+package A
+
+templ A() {
+	@A(`Õ`,
+)
+}
+-- out --
+package A
+
+templ A() {
+	@A(`Õ`,
+)
+}

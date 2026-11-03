@@ -89,7 +89,24 @@ func Concat(docs ...Doc) Doc { return concat{docs, anyHard(docs)} }
 
 // Fill takes alternating content and separator docs. Each separator breaks
 // only if the following content does not fit on the current line.
-func Fill(parts ...Doc) Doc { return fill{parts, anyHard(parts)} }
+//
+// A separator that is text cannot break, so it is joined with the contents
+// on either side of it into one content. Otherwise whether the content
+// after it fits would be measured from the separator rather than from the
+// last place the line can break, and the same words would be laid out
+// differently depending on whether they were written as one text or two.
+func Fill(parts ...Doc) Doc {
+	var merged []Doc
+	for i := 0; i < len(parts); i++ {
+		if _, isText := parts[i].(text); isText && i%2 == 1 && i+1 < len(parts) {
+			merged[len(merged)-1] = Concat(merged[len(merged)-1], parts[i], parts[i+1])
+			i++
+			continue
+		}
+		merged = append(merged, parts[i])
+	}
+	return fill{merged, anyHard(merged)}
+}
 
 func anyHard(docs []Doc) bool {
 	for _, d := range docs {

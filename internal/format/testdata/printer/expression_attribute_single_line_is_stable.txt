@@ -1,0 +1,13 @@
+-- in --
+package A
+
+templ A() {
+	<button A000={A{
+},}></button>
+}
+-- out --
+package A
+
+templ A() {
+	<button A000={ A{}, }></button>
+}

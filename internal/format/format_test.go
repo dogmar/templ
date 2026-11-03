@@ -127,3 +127,16 @@ func TestTemplKeepsLastLineWithoutPackage(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplKeepsLoneCarriageReturn(t *testing.T) {
+	// A line break printed after the carriage return would make it part
+	// of a CRLF line ending, so it would no longer render.
+	src := "package A\n\ntempl A() {\n\t<div>000\r</div>\n\t000\r}\n"
+	out, changed, err := Templ([]byte(src), "", Config{PrettierCommand: "templ-no-such-prettier-command"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed || string(out) != src {
+		t.Errorf("expected source unchanged, got %q", out)
+	}
+}
