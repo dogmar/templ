@@ -195,8 +195,11 @@ type gap struct {
 }
 
 // gaps returns the non-whitespace nodes of nodes, each with the whitespace
-// written between it and the node before it.
-func gaps(nodes []parser.Node) []gap {
+// written between it and the node before it. A *Whitespace node after a
+// node that takes trailing whitespace, such as one left by a stray closing
+// tag the parser skips, only counts in a body (ctx): the generator drops
+// every *Whitespace node of an element's or a template's children.
+func gaps(nodes []parser.Node, ctx parser.BoundaryContext) []gap {
 	var gs []gap
 	var prev parser.Node
 	var ws *parser.Whitespace
@@ -206,7 +209,8 @@ func gaps(nodes []parser.Node) []gap {
 			continue
 		}
 		g := gap{node: n}
-		if wt, ok := prev.(parser.WhitespaceTrailer); ok {
+		wt, trailer := prev.(parser.WhitespaceTrailer)
+		if trailer {
 			g.ws = wt.Trailing()
 			if g.ws == parser.SpaceVertical {
 				g.newlines = 1
@@ -217,7 +221,7 @@ func gaps(nodes []parser.Node) []gap {
 				}
 			}
 		}
-		if ws != nil && g.ws == parser.SpaceNone {
+		if ws != nil && g.ws == parser.SpaceNone && (!trailer || ctx == parser.BoundaryInBody) {
 			g.ws, _ = parser.NewTrailingSpace(ws.Value)
 			g.newlines = strings.Count(ws.Value, "\n")
 		}
@@ -259,7 +263,7 @@ type siblings struct {
 // own (see isOwnLine), a block element, and a node whose layout contains a
 // hard line end the run.
 func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
-	gs := gaps(nodes)
+	gs := gaps(nodes, s.ctx)
 	nexts := generatorNexts(nodes, s)
 	var parts []doc.Doc
 	var words []doc.Doc // the Fill of the current run of inline siblings
