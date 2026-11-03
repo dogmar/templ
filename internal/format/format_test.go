@@ -153,3 +153,21 @@ func TestTemplKeepsFileInsideComment(t *testing.T) {
 		t.Errorf("expected source unchanged, got %q", out)
 	}
 }
+
+func TestKeepAsWritten(t *testing.T) {
+	for _, test := range []struct {
+		src  string
+		keep bool
+	}{
+		{"package A\n\ntempl A() {\n\t<p>a\rb</p>\n}\n", true},
+		{"/*\npackage A\n0/**/", true},
+		{"// a\n/* b */", true},
+		{"package A\r\n\r\ntempl A() {\r\n\t<p>a</p>\r\n}\r\n", false},
+		{"package A\n\ntempl A() {\n\t<p>a</p>\n}\n", false},
+	} {
+		tf := parseTempl(t, test.src)
+		if reason := KeepAsWritten([]byte(test.src), tf); (reason != "") != test.keep {
+			t.Errorf("%q: expected keep %v, got reason %q", test.src, test.keep, reason)
+		}
+	}
+}

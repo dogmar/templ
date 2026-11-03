@@ -1129,6 +1129,10 @@ func (p *Server) Formatting(ctx context.Context, params *lsp.DocumentFormattingP
 	if !ok {
 		return
 	}
+	if reason := format.KeepAsWritten([]byte(d.String()), template); reason != "" {
+		p.Log.Info("formatting skipped, file kept as it is", slog.String("uri", template.Filepath), slog.String("reason", reason))
+		return nil, nil
+	}
 	p.Log.Info("attempting to organise imports", slog.String("uri", template.Filepath))
 	template, err = imports.Process(template)
 	if err != nil {

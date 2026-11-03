@@ -76,26 +76,7 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 	if err != nil {
 		return nil, false, err
 	}
-	if hasLoneCarriageReturn(src) {
-		// A carriage return followed by a newline is a line ending, so
-		// moving a line break to just after a lone carriage return would
-		// turn it into one. Text keeps a lone carriage return as written,
-		// and so must every line break next to it, so the source is kept
-		// as it is.
-		return src, false, nil
-	}
-	if opensComment(t) {
-		// A block comment opened in the header or the package clause and
-		// never closed makes the rest of the file, and the generated code,
-		// comment text, whose layout the generator keeps as it is, so the
-		// source is kept as it is.
-		return src, false, nil
-	}
-	if t.Package.Expression.Value == "" && len(t.Nodes) > 0 {
-		// Without a package clause, every line ending in a newline is read
-		// as header, so the nodes are the text of a last line with no
-		// newline. Printed on lines of their own, they would be read as
-		// header and render elsewhere, so the source is kept as it is.
+	if reason := KeepAsWritten(src, t); reason != "" {
 		return src, false, nil
 	}
 	t.Filepath = fileName
@@ -121,6 +102,33 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 	}
 	changed = !bytes.Equal(src, out)
 	return out, changed, nil
+}
+
+// KeepAsWritten returns why src, parsed as t, is kept as it is rather than
+// formatted, or "" if it can be formatted. Formatting such a file could
+// change what it renders, so callers return it unchanged.
+func KeepAsWritten(src []byte, t *parser.TemplateFile) (reason string) {
+	if hasLoneCarriageReturn(src) {
+		// A carriage return followed by a newline is a line ending, so
+		// moving a line break to just after a lone carriage return would
+		// turn it into one. Text keeps a lone carriage return as written,
+		// and so must every line break next to it.
+		return "the file has a carriage return that does not end a line"
+	}
+	if opensComment(t) {
+		// A block comment opened in the header or the package clause and
+		// never closed makes the rest of the file, and the generated code,
+		// comment text, whose layout the generator keeps as it is.
+		return "a block comment in the header or package clause is not closed"
+	}
+	if t.Package.Expression.Value == "" && len(t.Nodes) > 0 {
+		// Without a package clause, every line ending in a newline is read
+		// as header, so the nodes are the text of a last line with no
+		// newline. Printed on lines of their own, they would be read as
+		// header and render elsewhere.
+		return "the file has no package clause"
+	}
+	return ""
 }
 
 func ApplyPrettier(t *parser.TemplateFile, config Config) (err error) {

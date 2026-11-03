@@ -3,6 +3,7 @@ package lspcmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -926,6 +927,33 @@ func TestFormattingReturnsNoEditsOnRenderMismatch(t *testing.T) {
 	}
 	if diff := cmp.Diff(formatted, edits[0].NewText); diff != "" {
 		t.Errorf("expected the document to be unchanged by the failed format (-expected +actual):\n%s", diff)
+	}
+
+	// A file that templ fmt keeps as it is, here one with a lone carriage
+	// return, gets no edits without reaching the printer.
+	err = server.DidChange(ctx, &protocol.DidChangeTextDocumentParams{
+		TextDocument: protocol.VersionedTextDocumentIdentifier{
+			TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: fileURI},
+			Version:                2,
+		},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: formatted + "\ntempl CR() {\n\t<p>a\rb</p>\n}\n"}},
+	})
+	if err != nil {
+		t.Fatalf("failed to change file: %v", err)
+	}
+	restore = format.ReplacePrinterForTest(func(*parser.TemplateFile, int) ([]byte, error) {
+		return nil, errors.New("printer called for a file kept as it is")
+	})
+	edits = formatDocument()
+	restore()
+	if len(edits) != 0 {
+		t.Fatalf("expected no edits for a file kept as it is, got %v", edits)
+	}
+	if !strings.Contains(testOutput.String(), "formatting skipped") {
+		t.Error("expected the skipped format to be logged")
+	}
+	if strings.Contains(testOutput.String(), "printer called") {
+		t.Error("expected the printer not to be called")
 	}
 }
 
