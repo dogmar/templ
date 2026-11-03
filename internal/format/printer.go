@@ -1027,16 +1027,16 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 	return codeDoc(a.Write)
 }
 
-// expressionAttributeDoc is a, written as its Write does, with three
-// exceptions that keep the value as the next pass reads it. Write formats
+// expressionAttributeDoc is a, written as its Write does, with exceptions that keep the value as the next pass reads it. Write formats
 // a multi-line expression as the element of a composite literal. When the
 // result is a single line, it can keep that literal's indentation, which
 // the next pass trims, so a is written as its Write output would be
 // written once parsed again. The parser keeps the whitespace after a
 // trailing comma as part of the value, and a newline there lays the call
 // around the expression in the generated code out on lines of its own, so
-// when Write would add or drop a newline at an edge of the value, the
-// value is written as it is.
+// when Write would add or drop a newline at an edge of the value, or when
+// gofmt cannot format a value with a newline at an edge, the value is
+// written as it is.
 func expressionAttributeDoc(a *parser.ExpressionAttribute) doc.Doc {
 	written := writeString(a.Write, 0)
 	v := a.Expression.Value
@@ -1048,6 +1048,11 @@ func expressionAttributeDoc(a *parser.ExpressionAttribute) doc.Doc {
 	})
 	if strings.Contains(written, "\n") {
 		if strings.HasSuffix(trimmed, ",") && !edgeNewline {
+			return verbatim
+		}
+		if edgeNewline && !strings.HasPrefix(written, a.Key.String()+"={\n") {
+			// gofmt could not format the value, so Write wrote it on the
+			// line of the key with its edge newlines dropped.
 			return verbatim
 		}
 		return codeDoc(a.Write)
