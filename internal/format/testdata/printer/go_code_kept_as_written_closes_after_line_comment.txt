@@ -1,0 +1,18 @@
+-- in --
+package x
+
+templ T() {
+	{{
+		x := 1; y := 2 // c
+	}}
+	<p>{ x }{ y }</p>
+}
+-- out --
+package x
+
+templ T() {
+	{{
+		x := 1; y := 2 // c
+	}}
+	<p>{ x }{ y }</p>
+}

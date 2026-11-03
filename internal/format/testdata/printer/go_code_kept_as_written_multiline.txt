@@ -1,0 +1,18 @@
+-- in --
+package x
+
+templ T() {
+	{{ a := 1; b := 2
+		_ = a + b }}
+	<p>{ a }</p>
+}
+-- out --
+package x
+
+templ T() {
+	{{
+		a := 1; b := 2
+		_ = a + b
+	}}
+	<p>{ a }</p>
+}

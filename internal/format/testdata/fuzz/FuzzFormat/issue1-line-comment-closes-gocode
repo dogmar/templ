@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package x\n\ntempl T() {\n\t{{\n\t\tx := 1; y := 2 // c\n\t}}\n\t<p>{ x }{ y }</p>\n}\n")

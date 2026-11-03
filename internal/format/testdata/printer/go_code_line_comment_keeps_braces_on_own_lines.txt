@@ -1,0 +1,25 @@
+-- in --
+package x
+
+templ T() {
+	{{
+		//
+	}}
+	{{ x := 1 // note
+	}}
+	{{ u := "http://x" }}
+	<p>{ x }{ u }</p>
+}
+-- out --
+package x
+
+templ T() {
+	{{
+		//
+	}}
+	{{
+		x := 1 // note
+	}}
+	{{ u := "http://x" }}
+	<p>{ x }{ u }</p>
+}

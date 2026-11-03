@@ -556,7 +556,18 @@ func nodeDoc(n parser.Node, gluedBefore bool, next parser.Node, depth int) doc.D
 		if !gofmtKeepsTokens(n.Expression.Value) {
 			// Write would drop tokens, such as an empty statement, that
 			// lay out the generated code, so the code is kept as written.
-			return linesDoc("{{ "+strings.TrimSpace(n.Expression.Value)+" }}", doc.LiteralLine())
+			code := strings.TrimSpace(n.Expression.Value)
+			if !strings.Contains(code, "\n") && !hasLineComment(code) {
+				return doc.Text("{{ " + code + " }}")
+			}
+			// A line comment would swallow a closing }} on the same line, so
+			// the braces go on their own lines.
+			return doc.Concat(
+				doc.Text("{{"),
+				doc.Indent(doc.HardLine(), linesDoc(code, doc.LiteralLine())),
+				doc.HardLine(),
+				doc.Text("}}"),
+			)
 		}
 		return verbatimDoc(multilineAsReparsed(n).Write, depth)
 	}
@@ -593,6 +604,13 @@ func goTokens(s string) []string {
 	}
 }
 
+// hasLineComment reports whether the Go code s contains a // comment.
+func hasLineComment(s string) bool {
+	return slices.ContainsFunc(goTokens(s), func(t string) bool {
+		return strings.HasPrefix(t, token.COMMENT.String()+"//")
+	})
+}
+
 // multilineAsReparsed returns n, or a copy of it whose Multiline is whether
 // its code, formatted, spans more than one line, which is how the parser
 // reads it again: the parser sets Multiline when the code itself spans
@@ -603,9 +621,13 @@ func goTokens(s string) []string {
 func multilineAsReparsed(n *parser.GoCode) *parser.GoCode {
 	src, err := goformat.Source([]byte(n.Expression.Value))
 	if err != nil {
-		return n
+		if n.Multiline || !hasLineComment(n.Expression.Value) {
+			return n
+		}
+		src = []byte(n.Expression.Value)
 	}
-	multiline := bytes.Contains(src, []byte("\n"))
+	// A line comment would swallow a closing }} on the same line.
+	multiline := bytes.Contains(src, []byte("\n")) || hasLineComment(string(src))
 	if multiline == n.Multiline {
 		return n
 	}
