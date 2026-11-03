@@ -57,3 +57,16 @@ func TestEquivalentIgnoresGoSpacing(t *testing.T) {
 		t.Fatalf("expected equivalent, got %v", err)
 	}
 }
+
+func TestMismatchOnWhitespaceOnlyDifference(t *testing.T) {
+	before := parse(t, wrap("<script>\nvar x = 1;\n</script>"))
+	after := parse(t, wrap("<script>\n    var x = 1;\n</script>"))
+	err := Equivalent(before, after)
+	var me *MismatchError
+	if !errors.As(err, &me) {
+		t.Fatalf("expected *MismatchError, got %v", err)
+	}
+	if me.Before == "" || me.After == "" {
+		t.Errorf("expected non-empty mismatch, got %+v", me)
+	}
+}

@@ -57,13 +57,13 @@ func Equivalent(before, after *parser.TemplateFile) error {
 	for i := 0; i < max(len(bl), len(al)); i++ {
 		var bs, as string
 		if i < len(bl) {
-			bs = strings.TrimSpace(bl[i])
+			bs = bl[i]
 		}
 		if i < len(al) {
-			as = strings.TrimSpace(al[i])
+			as = al[i]
 		}
 		if bs != as {
-			return &MismatchError{Before: bs, After: as}
+			return &MismatchError{Before: strings.TrimSpace(bs), After: strings.TrimSpace(as)}
 		}
 	}
 	return &MismatchError{}
