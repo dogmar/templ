@@ -1,0 +1,16 @@
+-- in --
+package A
+
+templ A() {
+	@f(`
+ 
+`)
+}
+-- out --
+package A
+
+templ A() {
+	@f(`
+ 
+`)
+}

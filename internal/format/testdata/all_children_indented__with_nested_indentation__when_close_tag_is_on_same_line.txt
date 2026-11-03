@@ -8,5 +8,7 @@ templ input(value, validation string) {
 package test
 
 templ input(value, validation string) {
-	<div><p>{ "the" }<a href="http://example.com">{ "data" } </a></p></div>
+	<div>
+		<p>{ "the" }<a href="http://example.com">{ "data" }</a></p>
+	</div>
 }

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/a-h/parse"
@@ -627,5 +628,18 @@ func TestTemplElementExpressionParserFailures(t *testing.T) {
 				t.Fatalf("although we got an error, we did find a templ element, because the text started with @")
 			}
 		})
+	}
+}
+
+func TestTemplElementExpressionWriteWhenReformattingJoinsLines(t *testing.T) {
+	// Indenting and re-formatting this expression joins its lines, leaving
+	// fewer re-formatted lines than source lines.
+	tee := &TemplElementExpression{Expression: Expression{Value: "A(!\n\"\",\n)"}}
+	var sb strings.Builder
+	if err := tee.Write(&sb, 1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if expected := "\t@A(!\"\",\n)"; sb.String() != expected {
+		t.Errorf("expected %q, got %q", expected, sb.String())
 	}
 }

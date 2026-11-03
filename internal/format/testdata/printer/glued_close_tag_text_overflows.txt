@@ -1,0 +1,16 @@
+-- in --
+package main
+
+templ test() {
+	<p><a href="/">This link text is long enough that the paragraph has to break somewhere to fit the width</a>.</p>
+}
+-- out --
+package main
+
+templ test() {
+	<p>
+		<a href="/">
+			This link text is long enough that the paragraph has to break somewhere to fit the width
+		</a>.
+	</p>
+}

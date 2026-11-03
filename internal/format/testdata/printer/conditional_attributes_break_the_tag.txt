@@ -1,0 +1,29 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<input type="text"
+		if x {
+			disabled
+		}
+	/>
+	<a href="/" // line comment
+	>link</a>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<input
+		type="text"
+		if x {
+			disabled
+		}
+	/>
+	<a
+		href="/"
+		// line comment
+	>
+		link
+	</a>
+}

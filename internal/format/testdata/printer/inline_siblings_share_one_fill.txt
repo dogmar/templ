@@ -1,0 +1,32 @@
+-- in --
+package main
+
+templ test() {
+	<p>
+		In a flowing <strong>paragraph</strong>, you can use inline elements. These <strong>inline elements</strong> can be <strong>styled</strong> and text after an inline element continues the line.
+	</p>
+	<div>
+		@Header()
+		@Content()
+
+		@Footer()
+	</div>
+	<p>one<b>two</b><i>three</i> <!-- note --> four</p>
+}
+-- out --
+package main
+
+templ test() {
+	<p>
+		In a flowing <strong>paragraph</strong>, you can use inline elements.
+		These <strong>inline elements</strong> can be <strong>styled</strong> and text after an
+		inline element continues the line.
+	</p>
+	<div>
+		@Header()
+		@Content()
+
+		@Footer()
+	</div>
+	<p>one<b>two</b><i>three</i> <!-- note --> four</p>
+}

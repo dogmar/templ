@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package A\ntempl A(A0000[]A){<p>if 0{\n}else{0}</p>}")

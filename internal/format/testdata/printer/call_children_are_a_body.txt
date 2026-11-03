@@ -1,0 +1,32 @@
+-- in --
+package main
+
+templ test(x bool) {
+	@layout("Home") {
+		<h1>Title</h1>
+		@card() {
+			text <b>bold</b>
+		}
+	}
+	<div>
+		{ children... }
+	</div>
+	<div>{! legacy() }</div>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	@layout("Home") {
+		<h1>Title</h1>
+		@card() {
+			text <b>bold</b>
+		}
+	}
+	<div>
+		{ children... }
+	</div>
+	<div>
+		{! legacy() }
+	</div>
+}

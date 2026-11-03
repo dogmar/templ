@@ -1,0 +1,37 @@
+-- in --
+package main
+
+templ test() {
+	<p>
+		Text in a template is refilled word by word, but a printer must never start a line with it if you write about it, because the parser would read it as a statement.
+	</p>
+	<p>
+		The same goes for the word that starts a loop, which stays on the line before it when it is for real, and not split from its neighbour.
+	</p>
+	<p>
+		Comments are no different, as text at the start of a line that begins with two slashes is a // note, so it is kept with the word before.
+	</p>
+	<p>
+		A call written in text, such as @home, is a templ element, and the space before it is fixed.
+	</p>
+}
+-- out --
+package main
+
+templ test() {
+	<p>
+		Text in a template is refilled word by word, but a printer must never start a line with
+		it if you write about it, because the parser would read it as a statement.
+	</p>
+	<p>
+		The same goes for the word that starts a loop, which stays on the line before it when it
+		is for real, and not split from its neighbour.
+	</p>
+	<p>
+		Comments are no different, as text at the start of a line that begins with two slashes is
+		a // note, so it is kept with the word before.
+	</p>
+	<p>
+		A call written in text, such as @home, is a templ element, and the space before it is fixed.
+	</p>
+}

@@ -1,0 +1,24 @@
+-- in --
+package main
+
+templ test() {
+	<div>
+		<p>a</p>
+
+
+
+		<p>b</p>
+		<p>c</p>
+	</div>
+}
+-- out --
+package main
+
+templ test() {
+	<div>
+		<p>a</p>
+
+		<p>b</p>
+		<p>c</p>
+	</div>
+}

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ/internal/prettier"
+	parser "github.com/a-h/templ/parser/v2"
 )
 
 // createBenchmarkTemplate returns a templ file with componentCount components, each with
@@ -41,5 +43,59 @@ func BenchmarkTempl(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// printerShapes returns templates whose layout stresses the printer:
+// deep nesting of inline and block elements, long glued runs, many words
+// and many attributes, each scaled by n.
+func printerShapes(n int) map[string]string {
+	long := strings.Repeat("x", 120)
+	bodies := map[string]string{
+		"words":        "<p>" + strings.Repeat("word ", 20*n) + "</p>",
+		"inline":       "<p>" + strings.Repeat("a<b>b</b>c ", 5*n) + "</p>",
+		"nested-span":  strings.Repeat("<span>a ", n) + long + strings.Repeat("</span> b", n),
+		"nested-glued": strings.Repeat("a<span class=\"c\">", n) + long + strings.Repeat("</span>b", n),
+		"nested-div":   strings.Repeat("<div>"+long, n) + strings.Repeat("</div>", n),
+		"attributes":   "<p" + strings.Repeat(" a=\""+long+"\"", n) + "></p>",
+	}
+	files := map[string]string{}
+	for name, body := range bodies {
+		files[name] = "package A\n\ntempl A() {\n" + body + "\n}\n"
+	}
+	return files
+}
+
+func TestPrintTimeIsBounded(t *testing.T) {
+	// A layout that re-measures nested groups grows exponentially with
+	// depth; formatting these files would then take far longer than the
+	// generous limit.
+	for name, src := range printerShapes(200) {
+		tf := parseTempl(t, src)
+		start := time.Now()
+		if _, err := Print(tf, 100); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("%s: printing took %v", name, d)
+		}
+	}
+}
+
+func BenchmarkPrint(b *testing.B) {
+	for _, n := range []int{10, 40, 160} {
+		for name, src := range printerShapes(n) {
+			tf, err := parser.ParseString(src)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Run(fmt.Sprintf("%s/n=%d", name, n), func(b *testing.B) {
+				for b.Loop() {
+					if _, err := Print(tf, 100); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
 	}
 }

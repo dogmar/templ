@@ -97,6 +97,42 @@ templ fmt -fail .
 
 If `prettierd`, `prettier` or `npx` is found in your `PATH`, `templ fmt` will use prettier to format `script` and `style` elements in files.
 
+Use `-width` to set the maximum line width. The default is `100`.
+
+```
+templ fmt -width 80 .
+```
+
+### Formatting never changes what a template renders
+
+`templ fmt` never changes what a template renders. It checks every file after formatting, and refuses to write a file that would render differently. If that happens, `templ fmt` names the file and exits with a non-zero code.
+
+Whitespace between elements can be significant in HTML, so `templ fmt` keeps it. When a long line needs to wrap, it never adds a space between elements that touch. Instead, it breaks inside a tag. This is called a tag break.
+
+```templ title="Before"
+<p>Some text that is long enough to need wrapping<span class="badge">New</span></p>
+```
+
+```templ title="After, with -width 30"
+<p>
+	Some text that is long
+	enough to need
+	wrapping<span
+		class="badge"
+	>
+		New
+	</span>
+</p>
+```
+
+Here, `wrapping<span` has no space between the text and the element. The line break before `>` is a tag break. It means there is no space at that point. A `><` split across lines means the same thing: the elements touch.
+
+templ collapses whitespace inside `<pre>` and `<textarea>` like any other element, so `templ fmt` formats them normally. To render literal whitespace in them, use a string expression.
+
+```templ
+<pre>{ "  a\n  b" }</pre>
+```
+
 ### Ignoring files
 
 To exclude files or directories from formatting, create a `.templignore_fmt` file in the root of the directory being formatted. The file uses glob patterns, with `#` comments and blank lines ignored.
@@ -125,6 +161,8 @@ A number of additional options are provided to enable runtime logging and profil
         Set gopls to log input and output messages.
   -gopls-remote
         Specify remote gopls instance to connect to.
+  -width int
+        Set the maximum line width for formatting. (default 100)
   -help
         Print help and exit.
   -http string

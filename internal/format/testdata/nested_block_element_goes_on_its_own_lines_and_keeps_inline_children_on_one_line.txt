@@ -8,5 +8,7 @@ templ input(value, validation string) {
 package test
 
 templ input(value, validation string) {
-	<div><div><b>Text</b></div></div>
+	<div>
+		<div><b>Text</b></div>
+	</div>
 }

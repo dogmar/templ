@@ -1,0 +1,92 @@
+-- in --
+package main
+
+templ test(x bool, items []string) {
+	<p>
+		if x {
+			a
+		}
+		b
+	</p>
+	<p>
+		if x {
+			a}b
+	</p>
+	<p>
+		if x {
+			for _, i := range items {
+			<b>{ i }</b>}
+		}
+		d
+	</p>
+	<p>
+		if x {
+			a }
+		@c()
+		if x {
+			a
+		}
+		@c()
+	</p>
+	<p>
+		if x {
+			one
+		} else if len(items) > 1 {
+			<b>two</b>} else {
+			three
+		}
+		after
+	</p>
+	for _, i := range items {
+		if x {
+			<b>{ i }</b>}
+		tail
+	}
+}
+-- out --
+package main
+
+templ test(x bool, items []string) {
+	<p>
+		if x {
+			a
+		}
+		b
+	</p>
+	<p>
+		if x {
+			a}
+		b
+	</p>
+	<p>
+		if x {
+			for _, i := range items {
+				<b>{ i }</b>}
+		}
+		d
+	</p>
+	<p>
+		if x {
+			a }
+		@c()
+		if x {
+			a
+		}
+		@c()
+	</p>
+	<p>
+		if x {
+			one
+		} else if len(items) > 1 {
+			<b>two</b>} else {
+			three
+		}
+		after
+	</p>
+	for _, i := range items {
+		if x {
+			<b>{ i }</b>
+		}
+		tail
+	}
+}

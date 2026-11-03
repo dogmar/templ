@@ -1,0 +1,24 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<!DOCTYPE html>
+	<html>
+		// a comment
+		<body>/* block
+		  comment */</body>
+	</html>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<!DOCTYPE html>
+	<html>
+		// a comment
+		<body>
+			/* block
+		  comment */
+		</body>
+	</html>
+}

@@ -1,0 +1,27 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<p>text <!-- c --></p>
+	<p>
+		text 
+		// c
+	</p>
+	if x {
+		text <!-- c -->
+		more
+	}
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<p>text <!-- c --></p>
+	<p>
+		text 
+		// c
+	</p>
+	if x {
+		text <!-- c --> more
+	}
+}

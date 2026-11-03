@@ -1,0 +1,13 @@
+diff --git a/internal/imports/process.go b/internal/imports/process.go
+index 38b8c1a..8cce342 100644
+--- a/internal/imports/process.go
++++ b/internal/imports/process.go
+@@ -55,7 +55,7 @@ func isPackageUsedInAST(file *ast.File, pkgName string) (isPackageUsed bool) {
+ 
+ func updateImports(name, src string) (updated []*ast.ImportSpec, parsedFile *ast.File, err error) {
+ 	// Apply auto imports.
+-	updatedGoCode, err := imports.Process(name, []byte(src), nil)
++	updatedGoCode, err := imports.Process(name, []byte(src), &imports.Options{FormatOnly: true, Comments: true, TabIndent: true, TabWidth: 8})
+ 	if err != nil {
+ 		return updated, nil, fmt.Errorf("failed to process go code %q: %w", src, err)
+ 	}

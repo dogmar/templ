@@ -1,0 +1,10 @@
+-- in --
+package A
+
+script A(a, b,) {
+}
+-- out --
+package A
+
+script A(a, b,) {
+}

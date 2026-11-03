@@ -1,0 +1,17 @@
+-- in --
+package main
+
+templ test() {
+	<div>
+		This line of text is written so that the run of spaces falls right at the edge of the alpha   beta width.
+	</div>
+}
+-- out --
+package main
+
+templ test() {
+	<div>
+		This line of text is written so that the run of spaces falls right at the edge of the
+		alpha   beta width.
+	</div>
+}

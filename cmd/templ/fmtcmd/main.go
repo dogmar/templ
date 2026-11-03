@@ -24,6 +24,8 @@ type Arguments struct {
 	WorkerCount      int
 	PrettierCommand  string
 	PrettierRequired bool
+	// Width is the maximum line width. If zero, the default is format.DefaultWidth.
+	Width int
 }
 
 func Run(log *slog.Logger, stdin io.Reader, stdout io.Writer, args Arguments) (err error) {
@@ -31,6 +33,7 @@ func Run(log *slog.Logger, stdin io.Reader, stdout io.Writer, args Arguments) (e
 	formatterConfig := format.Config{
 		PrettierCommand:  args.PrettierCommand,
 		PrettierRequired: args.PrettierRequired,
+		Width:            args.Width,
 	}
 	if len(args.Files) == 0 {
 		src, err := io.ReadAll(stdin)
@@ -39,6 +42,7 @@ func Run(log *slog.Logger, stdin io.Reader, stdout io.Writer, args Arguments) (e
 		}
 		formatted, _, err := format.Templ(src, args.StdinFilepath, formatterConfig)
 		if err != nil {
+			log.Error("Failed to format stdin", slog.Any("error", err))
 			return fmt.Errorf("failed to format stdin: %w", err)
 		}
 		if _, err = stdout.Write(formatted); err != nil {

@@ -1,0 +1,18 @@
+-- in --
+package main
+
+templ test() {
+	<p>
+		A space at the end of a line of text renders, so it is kept when the line is joined to them 
+		<a href="/">link</a> after it.
+	</p>
+}
+-- out --
+package main
+
+templ test() {
+	<p>
+		A space at the end of a line of text renders, so it is kept when the line is joined to
+		them  <a href="/">link</a> after it.
+	</p>
+}

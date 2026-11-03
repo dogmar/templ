@@ -42,38 +42,16 @@ templ input(value, validation string) {
 package test
 
 templ input(value, validation string) {
-	<area/>
-	<area/>
-	<base/>
-	<base/>
+	<area/> <area/> <base/> <base/>
 	<br/>
 	<br/>
-	<col/>
-	<col/>
-	<command/>
-	<command/>
-	<embed/>
-	<embed/>
+	<col/> <col/> <command/> <command/> <embed/> <embed/>
 	<hr/>
 	<hr/>
-	<img/>
-	<img/>
-	<input/>
-	<input/>
-	<input/>Text
-	<input/>Text
-	<keygen/>
-	<keygen/>
+	<img/> <img/> <input/> <input/> <input/>Text <input/>Text <keygen/> <keygen/>
 	<link/>
 	<link/>
 	<meta/>
 	<meta/>
-	<param/>
-	<param/>
-	<source/>
-	<source/>
-	<track/>
-	<track/>
-	<wbr/>
-	<wbr/>
+	<param/> <param/> <source/> <source/> <track/> <track/> <wbr/> <wbr/>
 }

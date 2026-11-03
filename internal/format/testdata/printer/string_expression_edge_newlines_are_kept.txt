@@ -1,0 +1,24 @@
+-- in --
+package A
+
+templ A() {
+	<li><a>{
+0}</a></li>
+	<a>{0,
+}</a>
+}
+-- out --
+package A
+
+templ A() {
+	<li>
+		<a>
+			{
+			0 }
+		</a>
+	</li>
+	<a>
+		{ 0,
+		}
+	</a>
+}

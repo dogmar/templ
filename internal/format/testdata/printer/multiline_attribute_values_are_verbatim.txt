@@ -1,0 +1,23 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<div x-data="{
+    open: false,
+  }" class="a
+  b">x</div>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<div
+		x-data="{
+    open: false,
+  }"
+		class="a
+  b"
+	>
+		x
+	</div>
+}

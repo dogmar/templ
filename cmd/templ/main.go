@@ -177,6 +177,8 @@ Args:
     Set the command to use for formatting HTML, CSS, and JS blocks. Default is "prettier --stdin-filepath $TEMPL_PRETTIER_FILENAME".
   -prettier-required
     Set to true to return an error the prettier command is not available. Default is false.
+  -width
+    Set the maximum line width. (default 100)
   -fail
     Fails with exit code 1 if files are changed. (e.g. in CI)
   -help
@@ -192,6 +194,7 @@ func fmtCmd(stdin io.Reader, stdout, stderr io.Writer, args []string) (code int)
 	failIfChanged := cmd.Bool("fail", false, "")
 	prettierCommand := cmd.String("prettier-command", "", "")
 	prettierRequired := cmd.Bool("prettier-required", false, "")
+	widthFlag := cmd.Int("width", format.DefaultWidth, "")
 	stdoutFlag := cmd.Bool("stdout", false, "")
 	stdinFilepath := cmd.String("stdin-filepath", "", "")
 	err := cmd.Parse(args)
@@ -214,6 +217,7 @@ func fmtCmd(stdin io.Reader, stdout, stderr io.Writer, args []string) (code int)
 		FailIfChanged:    *failIfChanged,
 		PrettierCommand:  *prettierCommand,
 		PrettierRequired: *prettierRequired,
+		Width:            *widthFlag,
 	})
 	if err != nil {
 		return 1
@@ -246,6 +250,8 @@ Args:
     Set the command to use for formatting HTML, CSS, and JS blocks. Default is "prettier --stdin-filepath $TEMPL_PRETTIER_FILENAME".
   -prettier-required
     Set to true to return an error the prettier command is not available. Default is false.
+  -width
+    Set the maximum line width. (default 100)
 `
 
 func lspCmd(stdin io.Reader, stdout, stderr io.Writer, args []string) (code int) {
@@ -260,6 +266,7 @@ func lspCmd(stdin io.Reader, stdout, stderr io.Writer, args []string) (code int)
 	noPreloadFlag := cmd.Bool("no-preload", false, "")
 	prettierCommand := cmd.String("prettier-command", "", "")
 	prettierRequired := cmd.Bool("prettier-required", false, "")
+	widthFlag := cmd.Int("width", format.DefaultWidth, "")
 	err := cmd.Parse(args)
 	if err != nil {
 		_, _ = fmt.Fprint(stderr, lspUsageText)
@@ -281,6 +288,7 @@ func lspCmd(stdin io.Reader, stdout, stderr io.Writer, args []string) (code int)
 		FormatConfig: format.Config{
 			PrettierCommand:  *prettierCommand,
 			PrettierRequired: *prettierRequired,
+			Width:            *widthFlag,
 		},
 	})
 	if err != nil {

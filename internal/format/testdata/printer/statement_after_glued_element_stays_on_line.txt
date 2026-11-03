@@ -1,0 +1,30 @@
+-- in --
+package main
+
+templ test(x bool, items []string) {
+	<div><span>a</span>if x {
+		<b>y</b>
+	}</div>
+	<p>
+		some text
+		for _, i := range items {
+			{ i }
+		}
+	</p>
+}
+-- out --
+package main
+
+templ test(x bool, items []string) {
+	<div>
+		<span>a</span>if x {
+			<b>y</b>
+		}
+	</div>
+	<p>
+		some text
+		for _, i := range items {
+			{ i }
+		}
+	</p>
+}

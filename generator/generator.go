@@ -655,69 +655,12 @@ func (g *generator) writeNode(indentLevel int, current parser.Node, next parser.
 		return fmt.Errorf("unhandled type: %v", reflect.TypeOf(n))
 	}
 	// Write trailing whitespace, if there is a next node that might need the space.
-	if ws, ok := current.(parser.WhitespaceTrailer); ok && isTrailingSpaceNeeded(current, next) {
+	if ws, ok := current.(parser.WhitespaceTrailer); ok && parser.RendersTrailingSpace(current, next) {
 		if err := g.writeWhitespaceTrailer(indentLevel, ws.Trailing()); err != nil {
 			return err
 		}
 	}
 	return
-}
-
-func isInlineOrText(next parser.Node) bool {
-	// While these are formatted as blocks when they're written in the HTML template.
-	// They're inline - i.e. there's no whitespace rendered around them at runtime for minification.
-	if next == nil {
-		return false
-	}
-	switch n := next.(type) {
-	case *parser.IfExpression:
-		return true
-	case *parser.SwitchExpression:
-		return true
-	case *parser.ForExpression:
-		return true
-	case *parser.Element:
-		return !n.IsBlockElement()
-	case *parser.Text:
-		return true
-	case *parser.StringExpression:
-		return true
-	}
-	return false
-}
-
-func isTextLike(n parser.Node) bool {
-	switch n.(type) {
-	case *parser.Text:
-		return true
-	case *parser.StringExpression:
-		return true
-	}
-	return false
-}
-
-func isSelfClosingTemplElementExpression(n parser.Node) bool {
-	tee, ok := n.(*parser.TemplElementExpression)
-	return ok && len(tee.Children) == 0
-}
-
-// isTrailingSpaceNeeded reports whether trailing whitespace should be emitted between current and next.
-// Trailing space is needed when both nodes are inline content (text, inline elements, control flow), or
-// when a self-closing templ element expression is adjacent to text or a string expression. When text
-// precedes a self-closing templ expression, trailing space is only emitted for horizontal whitespace
-// (same-line), not vertical (different lines), to avoid adding spaces before block-level components.
-func isTrailingSpaceNeeded(current, next parser.Node) bool {
-	if isInlineOrText(current) && isInlineOrText(next) {
-		return true
-	}
-	if isSelfClosingTemplElementExpression(current) && isTextLike(next) {
-		return true
-	}
-	if isTextLike(current) && isSelfClosingTemplElementExpression(next) {
-		ws, ok := current.(parser.WhitespaceTrailer)
-		return ok && ws.Trailing() == parser.SpaceHorizontal
-	}
-	return false
 }
 
 func (g *generator) writeWhitespaceTrailer(indentLevel int, n parser.TrailingSpace) (err error) {

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package A\ntempl A(A000000){<button A000={A{\n},}></button>}")

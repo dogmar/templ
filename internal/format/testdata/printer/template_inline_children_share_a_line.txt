@@ -1,0 +1,52 @@
+-- in --
+package main
+
+templ a() {
+	<b>x</b>
+	<i>y</i>
+}
+
+templ b() {
+	more text @c()
+	and
+}
+
+templ c(x bool) {
+	<b>x</b> <i>y</i>
+	if x {
+		<b>x</b> <i>y</i>
+	}
+}
+
+templ d(x bool) {
+	<span>x</span><p>y</p>
+	if x {
+		<span>x</span><p>y</p>
+	}
+}
+-- out --
+package main
+
+templ a() {
+	<b>x</b> <i>y</i>
+}
+
+templ b() {
+	more text @c() and
+}
+
+templ c(x bool) {
+	<b>x</b> <i>y</i>
+	if x {
+		<b>x</b> <i>y</i>
+	}
+}
+
+templ d(x bool) {
+	<span>x</span>
+	<p>y</p>
+	if x {
+		<span>x</span>
+		<p>y</p>
+	}
+}
