@@ -41,6 +41,12 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 		if len(out) > 0 {
 			out = append(out, '\n')
 		}
+		// Trimming can move a package clause the header holds, such as one
+		// after a space, to the start of its line, where it is read as the
+		// package clause, so the output is printed as it parses again.
+		if reparsed, err := parser.ParseString(string(out)); err == nil && reparsed.Package.Expression.Value != "" {
+			return Print(reparsed, width)
+		}
 		return out, nil
 	}
 	// The package clause runs to the end of its line, so it keeps a
