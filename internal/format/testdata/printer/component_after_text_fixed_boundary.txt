@@ -25,8 +25,7 @@ templ test(x bool) {
 	<p>text @c() more</p>
 	<p>
 		text
-		@c()
-		more
+		@c() more
 	</p>
 	<span>@icon() Save</span>
 	<p>

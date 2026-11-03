@@ -35,10 +35,17 @@ var printerFixtureChecks = map[string]func(t *testing.T, out string){
 			}
 		}
 	},
-	"soft_boundary_becomes_newline.txt": func(t *testing.T, out string) {
-		for _, s := range []string{"\t\t<b>one</b>\n", "\t\t<i>two</i>\n", "\t\t<em>three</em>\n"} {
+	"soft_boundaries_fill_the_line.txt": func(t *testing.T, out string) {
+		checkMaxWidth(t, out, 100)
+		if !strings.Contains(out, "\t\t<b>one</b> <i>two</i> <em>three</em>") {
+			t.Error("expected inline siblings at soft boundaries to share a line")
+		}
+	},
+	"inline_siblings_share_one_fill.txt": func(t *testing.T, out string) {
+		checkMaxWidth(t, out, 100)
+		for _, s := range []string{"</strong> can be <strong>styled</strong> and", "\t\t@Header()\n\t\t@Content()\n\n\t\t@Footer()\n", "<i>three</i> <!-- note --> four"} {
 			if !strings.Contains(out, s) {
-				t.Errorf("expected %q on its own line", s)
+				t.Errorf("expected %q", s)
 			}
 		}
 	},
@@ -95,7 +102,7 @@ var printerFixtureChecks = map[string]func(t *testing.T, out string){
 		}
 	},
 	"component_after_text_fixed_boundary.txt": func(t *testing.T, out string) {
-		for _, s := range []string{"\t<p>text @c() more</p>\n", "\t\ttext\n\t\t@c()\n\t\tmore\n", "\t<span>@icon() Save</span>\n"} {
+		for _, s := range []string{"\t<p>text @c() more</p>\n", "\t\ttext\n\t\t@c() more\n", "\t<span>@icon() Save</span>\n"} {
 			if !strings.Contains(out, s) {
 				t.Errorf("expected %q", s)
 			}

@@ -147,64 +147,102 @@ type siblings struct {
 // nodesDoc lays out sibling nodes whose lines are at depth, writing each
 // boundary between them by its kind. The boundaries before the first node
 // and after the last are left to the caller.
+//
+// A run of inline siblings is one Fill, like Prettier's JSX children: the
+// words of text and the inline nodes share lines, each separator breaking
+// only when what follows it does not fit. A node that goes on lines of its
+// own (see isOwnLine), a block element, and a node whose layout contains a
+// hard line end the run.
 func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 	gs := gaps(nodes)
 	nexts := generatorNexts(nodes, s)
 	var parts []doc.Doc
-	var words []doc.Doc // the Fill of the current run of text
+	var words []doc.Doc // the Fill of the current run of inline siblings
 	flush := func() {
 		if len(words) > 0 {
 			parts = append(parts, doc.Fill(words...))
 			words = nil
 		}
 	}
+	// join appends contents to the Fill, the first glued to its last content.
+	join := func(contents []doc.Doc) {
+		words[len(words)-1] = doc.Concat(words[len(words)-1], contents[0])
+		words = append(words, contents[1:]...)
+	}
+	prevBreaks := false // the previous node ended a run
 	for i, g := range gs {
-		glued := false
+		t, isText := g.node.(*parser.Text)
+		var prev parser.Node
+		kind := parser.BoundaryIgnored
 		if i > 0 {
-			prev := gs[i-1].node
-			kind := parser.ClassifyBoundary(prev, g.node, g.ws, s.ctx)
-			if t, ok := g.node.(*parser.Text); ok && kind == parser.BoundarySoft {
-				if _, prevIsText := prev.(*parser.Text); prevIsText {
-					// Adjacent text joins the same Fill.
-					words = append(words, textJoin(prev, t, g, s.caseBody))
-					words = append(words, textParts(t, s.caseBody)...)
-					continue
-				}
-			}
-			if kind == parser.BoundarySoft && endsWithSpace(prev) && len(words) > 0 && !isOwnLine(g.node) {
-				// The boundary's space is written at the end of the text,
-				// glued to the next node, which is how it parses again.
-				words[len(words)-1] = doc.Concat(words[len(words)-1], doc.Text(" "))
-				kind = parser.BoundaryGlued
-			}
-			if kind == parser.BoundaryGlued && len(words) > 0 && !isOwnLine(g.node) {
-				// A node glued to the text before it is part of that text's
-				// last word, so that the Fill breaks before the word when
-				// the two do not fit on the line.
-				last := len(words) - 1
-				if t, ok := g.node.(*parser.Text); ok {
-					ps := textParts(t, s.caseBody)
-					words[last] = doc.Concat(words[last], ps[0])
-					words = append(words, ps[1:]...)
-				} else {
-					words[last] = doc.Concat(words[last], nodeDoc(g.node, true, nexts[i], depth))
-				}
-				continue
-			}
-			flush()
-			if sep := boundaryDoc(prev, g, kind, depth); sep != nil {
-				parts = append(parts, sep)
-			}
-			glued = kind == parser.BoundaryGlued
+			prev = gs[i-1].node
+			kind = parser.ClassifyBoundary(prev, g.node, g.ws, s.ctx)
 		}
-		if t, ok := g.node.(*parser.Text); ok {
-			words = textParts(t, s.caseBody)
+		if _, prevIsText := prev.(*parser.Text); prevIsText && isText && kind == parser.BoundarySoft {
+			// Adjacent text joins the same run of words.
+			words = append(words, textJoin(prev, t, g, s.caseBody))
+			words = append(words, textParts(t, s.caseBody)...)
 			continue
 		}
-		parts = append(parts, nodeDoc(g.node, glued, nexts[i], depth))
+		if kind == parser.BoundarySoft && endsWithSpace(prev) && !isOwnLine(g.node) {
+			// The boundary's space is written at the end of the text, glued
+			// to the next node, which is how it parses again. Text is never
+			// a breaking node, so it is the last content of the Fill.
+			words[len(words)-1] = doc.Concat(words[len(words)-1], doc.Text(" "))
+			kind = parser.BoundaryGlued
+		}
+		var contents []doc.Doc
+		breaks := false
+		if isText {
+			contents = textParts(t, s.caseBody)
+		} else {
+			d := nodeDoc(g.node, kind == parser.BoundaryGlued, nexts[i], depth)
+			contents = []doc.Doc{d}
+			breaks = isOwnLine(g.node) || isBlockElement(g.node) || doc.HasHardLine(d)
+		}
+		switch {
+		case i == 0:
+		case kind == parser.BoundaryGlued && len(words) > 0 && !isOwnLine(g.node):
+			// A node glued to the content before it is part of that
+			// content, so that the Fill breaks before both together.
+			join(contents)
+			prevBreaks = false
+			continue
+		case !prevBreaks && !breaks:
+			if sep := boundaryDoc(prev, g, kind, depth, false, s.caseBody); sep != nil {
+				words = append(words, sep)
+				words = append(words, contents...)
+			} else {
+				join(contents)
+			}
+			continue
+		default:
+			flush()
+			if sep := boundaryDoc(prev, g, kind, depth, true, s.caseBody); sep != nil {
+				parts = append(parts, sep)
+			}
+		}
+		if breaks {
+			parts = append(parts, contents[0])
+		} else {
+			words = contents
+		}
+		prevBreaks = breaks
 	}
 	flush()
 	return doc.Concat(parts...)
+}
+
+// startsWithHazard reports whether n is text whose first word is a
+// line-start hazard.
+func startsWithHazard(n parser.Node, caseBody bool) bool {
+	t, ok := n.(*parser.Text)
+	return ok && isLineStartHazard(textWords(t.Value)[0], caseBody)
+}
+
+func isBlockElement(n parser.Node) bool {
+	e, ok := n.(*parser.Element)
+	return ok && e.IsBlockElement()
 }
 
 // generatorNexts returns, for each non-whitespace node in nodes, the node
@@ -240,7 +278,10 @@ func trimTrailingWhitespace(nodes []parser.Node) []parser.Node {
 }
 
 // boundaryDoc writes the boundary of the given kind between prev and g.node.
-func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int) doc.Doc {
+// ownLine reports whether either of them goes on lines of its own; otherwise
+// the boundary is a separator of a Fill. caseBody reports whether the nodes
+// are a switch case body.
+func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int, ownLine, caseBody bool) doc.Doc {
 	// A newline next to text that starts or ends with a space would drop
 	// that space: the printer trims trailing spaces, and the parser drops
 	// leading ones.
@@ -252,7 +293,7 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int) doc.D
 		return sourceWhitespace(g, verticalWhitespace(prev, doc.HardLine(), depth))
 	case startsWithSpace(g.node) || continuesCall(prev, g.node):
 		return sourceWhitespace(g, verticalWhitespace(prev, newline(g), depth))
-	case isOwnLine(prev) || isOwnLine(g.node):
+	case ownLine:
 		// A soft boundary renders the same as a space or a newline. Text
 		// ending with a space keeps the whitespace it had, so that the
 		// space does not end up at the end of a line.
@@ -260,7 +301,8 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int) doc.D
 			return sourceWhitespace(g, verticalWhitespace(prev, newline(g), depth))
 		}
 		return newline(g)
-	case noBreak:
+	case noBreak, startsWithHazard(g.node, caseBody):
+		// A line must not start with a line-start hazard either.
 		if kind == parser.BoundarySoft {
 			return doc.Text(" ")
 		}
@@ -268,6 +310,12 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int) doc.D
 	case g.newlines >= 2:
 		return doc.BlankLine()
 	case kind == parser.BoundarySoft:
+		return doc.Line()
+	case g.ws == parser.SpaceVertical:
+		// Like a newline between JSX children, a newline that does not
+		// render is kept, so that components written one per line stay so.
+		return doc.HardLine()
+	case g.ws == parser.SpaceHorizontal:
 		return doc.Line()
 	}
 	return doc.SoftLine()

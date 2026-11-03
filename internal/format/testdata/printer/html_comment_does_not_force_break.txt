@@ -9,6 +9,6 @@ templ test(x bool) {
 package main
 
 templ test(x bool) {
-	<span>a <!-- c -->b</span>
+	<span>a <!-- c --> b</span>
 	<p>short <!-- note --></p>
 }

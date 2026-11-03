@@ -36,8 +36,7 @@ templ b() {
 }
 
 templ c(x bool) {
-	<b>x</b>
-	<i>y</i>
+	<b>x</b> <i>y</i>
 	if x {
 		<b>x</b> <i>y</i>
 	}

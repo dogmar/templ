@@ -9,12 +9,7 @@ package main
 
 templ test() {
 	<p>
-		<b>one</b>
-		<i>two</i>
-		<em>three</em>
-		<strong>four</strong>
-		<code>five</code>
-		<small>six</small>
-		<mark>seven</mark>
+		<b>one</b> <i>two</i> <em>three</em> <strong>four</strong> <code>five</code>
+		<small>six</small> <mark>seven</mark>
 	</p>
 }
