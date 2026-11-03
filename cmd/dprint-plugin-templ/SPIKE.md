@@ -4,11 +4,14 @@ Date: 2026-11-02. Go 1.27.3 (darwin/arm64), dprint 0.64.3.
 
 ## Result
 
-dprint loads the Go plugin, the schema v4 ABI works, and the plugin
-formats templ files the same way `templ fmt` does, at about the same
-speed once dprint has cached the compiled plugin. Two problems had to be
-worked around. One is fixed in `build.sh`. The other is not fixed in the
-committed code.
+**The committed plugin returns an error for every file under WASI**,
+because goimports can't run there (problem 2). dprint loads the Go plugin
+and the schema v4 ABI works. With the FormatOnly imports change
+applied (it is kept unapplied in `imports-formatonly.patch`), the plugin formats templ files the
+same way `templ fmt` does, but only for files whose imports are already
+correct: in that mode it never adds or removes imports. Two problems had
+to be worked around. One is fixed in `build.sh`. The other is not fixed
+in the committed code.
 
 1. **Fixed in `build.sh`: dprint's monotonic clock reads 0 at first.**
    On a warm run (compiled plugin cached), every start failed:
@@ -58,9 +61,12 @@ committed code.
    stdlib table could work.
 
    For the measurements below I temporarily changed
-   `internal/imports/process.go` (not committed) to pass
+   `internal/imports/process.go` to pass
    `&imports.Options{FormatOnly: true, Comments: true, TabIndent: true, TabWidth: 8}`.
-   That keeps gofmt-style import formatting but stops imports being added
+   The change is committed as `imports-formatonly.patch` so the timings
+   can be reproduced (`git apply cmd/dprint-plugin-templ/imports-formatonly.patch`,
+   rebuild, then `git checkout internal/imports/process.go`).
+   It keeps gofmt-style import formatting but stops imports being added
    or removed. On the 50 generator templates the output was byte-for-byte
    the same as `templ fmt` with real goimports, because those files
    already have the right imports.
@@ -74,7 +80,7 @@ with no error.
 | What | Result |
 | --- | --- |
 | `plugin.wasm` size | 11,776,184 bytes (11.78 MB, 11.23 MiB) |
-| Cold, 1 file (`dprint clear-cache`, then `dprint fmt --stdin`) | 0.79 to 0.83 s real (4 runs). Most of it is compiling the Wasm (about 5.9 s user across threads) |
+| Cold, 1 file (`dprint clear-cache`, then `dprint fmt --stdin`) | 0.79 to 0.83 s real (4 runs). Most of it is compiling the Wasm (about 5.9 s user across threads). These runs used the clock workaround and printed `Compiling ...` once, so they don't include a failed first start. Before the workaround, cold runs took about 1.6 s and printed it twice |
 | Warm, 1 file (`--stdin`) | 0.01 s real |
 | Warm, 50 files, dprint (2nd+ run, `incremental: false`) | 0.25 to 0.27 s real, 1.6 s user (3 runs) |
 | Same 50 files, `templ fmt` (host binary, real goimports) | 0.30 to 0.33 s real, 0.5 s user (3 runs) |
@@ -124,9 +130,19 @@ clean check. `--stdin a.templ` supplies the file name.
 ## Recommendation: go, with two conditions
 
 Go: the ABI works, the plugin is a single portable file with no
-dependencies, warm throughput matches `templ fmt`, and the output is
-identical. The 11.8 MB size and 0.8 s first-run compile are paid once
-per plugin version, because dprint caches the compiled module.
+dependencies, and the output matched `templ fmt` on the 50 files. The
+11.8 MB size and 0.8 s first-run compile are paid once per plugin
+version, because dprint caches the compiled module.
+
+About the speed comparison: the plugin's 0.25 to 0.27 s uses FormatOnly
+imports, while `templ fmt`'s 0.30 to 0.33 s runs real goimports. Compared
+with `templ fmt` using FormatOnly too (0.24 to 0.25 s), the plugin is
+about the same speed or slightly slower, and uses about 3x the CPU (1.6 s
+user vs 0.5 s), because each parallel instance starts its own Go runtime.
+
+**The goimports decision is the key open risk.** Without it the
+committed plugin doesn't work at all, and the cheapest option (a, below)
+is a visible change in behaviour from `templ fmt`.
 
 Conditions:
 
@@ -135,7 +151,8 @@ Conditions:
    the two, the plugin can't start once it's cached.
 2. **goimports**: decide what the plugin does with imports under WASI.
    Options: (a) FormatOnly under wasip1, so missing or unused imports are
-   left alone and output can differ from `templ fmt` on such files;
+   left alone. That is a visible regression from `templ fmt`, which adds
+   and removes imports, and output differs on any such file;
    (b) skip import processing entirely under wasip1; (c) write a
    stdlib-only import fixer from x/tools' compiled-in symbol table, which
    is more work and still can't resolve module imports. (a) is the
