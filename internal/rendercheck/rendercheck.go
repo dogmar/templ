@@ -17,6 +17,12 @@ import (
 	templparser "github.com/a-h/templ/parser/v2"
 )
 
+// positionRegexp matches the source positions the generator writes into
+// error messages, which formatting moves. It also strips literal
+// "Line: N, Col: N" text written in a template, on both sides of the
+// comparison alike. That is harmless and intentional: only a change to the
+// numbers in such text could be hidden, and formatting never rewrites the
+// characters of text, only the whitespace between words.
 var positionRegexp = regexp.MustCompile(`Line: \d+, Col: \d+`)
 
 // MismatchError reports the first differing line of the normalized output.
