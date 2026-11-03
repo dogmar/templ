@@ -2,6 +2,8 @@ package format
 
 import (
 	"bytes"
+	"go/scanner"
+	"go/token"
 	"io"
 	"strings"
 
@@ -233,11 +235,12 @@ func newline(g gap) doc.Doc {
 	return doc.HardLine()
 }
 
-// isLaidOut reports whether n is laid out by this printer rather than
-// written by its own Write.
+// isLaidOut reports whether the boundaries around n are laid out by this
+// printer rather than kept as they were. An HTML comment is written by its
+// own Write, but whitespace around it can be added or removed safely.
 func isLaidOut(n parser.Node) bool {
 	switch n.(type) {
-	case *parser.Element, *parser.Text, *parser.StringExpression:
+	case *parser.Element, *parser.Text, *parser.StringExpression, *parser.HTMLComment:
 		return true
 	}
 	return false
@@ -256,10 +259,61 @@ func nodeDoc(n parser.Node, gluedBefore bool, depth int) doc.Doc {
 }
 
 // codeDoc is the output of write at indent 0, one Text per line, with each
-// following line indented to the enclosing level. Only use it where
-// indentation does not render, such as Go code.
+// following line indented to the enclosing level, except for lines inside a
+// Go raw string literal, which are kept verbatim.
 func codeDoc(write func(w io.Writer, indent int) error) doc.Doc {
-	return linesDoc(writeString(write, 0), doc.HardLine())
+	s := writeString(write, 0)
+	literal := rawStringNewlines(s)
+	var parts []doc.Doc
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\n' {
+			continue
+		}
+		parts = append(parts, doc.Text(s[start:i]))
+		if literal[i] {
+			parts = append(parts, doc.LiteralLine())
+		} else {
+			parts = append(parts, doc.HardLine())
+		}
+		start = i + 1
+	}
+	return doc.Concat(append(parts, doc.Text(s[start:]))...)
+}
+
+// rawStringNewlines returns the offsets of the newlines in s that are inside
+// a Go raw string literal. If s cannot be scanned as Go, it returns every
+// newline, so that all lines are kept verbatim.
+func rawStringNewlines(s string) map[int]bool {
+	newlines := map[int]bool{}
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(s))
+	failed := false
+	var sc scanner.Scanner
+	sc.Init(file, []byte(s), func(token.Position, string) { failed = true }, 0)
+	for !failed {
+		pos, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok != token.STRING || !strings.HasPrefix(lit, "`") {
+			continue
+		}
+		start := file.Offset(pos)
+		for i := start; i < len(s) && i < start+len(lit); i++ {
+			if s[i] == '\n' {
+				newlines[i] = true
+			}
+		}
+	}
+	if failed {
+		for i := range len(s) {
+			if s[i] == '\n' {
+				newlines[i] = true
+			}
+		}
+	}
+	return newlines
 }
 
 // verbatimDoc is the output of write at depth, which starts at the current
@@ -309,23 +363,26 @@ func elementDoc(e *parser.Element, gluedBefore bool, depth int) doc.Doc {
 		}
 		return doc.Group(append(open, doc.Text("></"+e.Name+">"))...)
 	}
-	open = append(open, doc.Text(">"))
+	// The opening tag is its own group, so it breaks only when it does not
+	// fit itself, not when the children do.
+	openTag := doc.Group(append(open, doc.Text(">"))...)
 	childrenDoc := nodesDoc(e.Children, parser.BoundaryInElement, depth+1)
 	first, last := children[0], children[len(children)-1]
 	closeTag := doc.Text("</" + e.Name + ">")
-	if alwaysBreaksChildren(e, children) || doc.HasHardLine(childrenDoc) {
+	if hasBlockChild(children) || doc.HasHardLine(childrenDoc) {
 		return doc.Concat(
-			doc.Group(open...),
+			openTag,
 			doc.Indent(openingEdge(first, doc.HardLine()), childrenDoc),
 			closingEdge(last, doc.HardLine()),
 			closeTag,
 		)
 	}
-	return doc.Group(append(open,
+	return doc.Group(
+		openTag,
 		doc.Indent(openingEdge(first, doc.SoftLine()), childrenDoc),
 		closingEdge(last, doc.SoftLine()),
 		closeTag,
-	)...)
+	)
 }
 
 // attributesDoc is the attributes of an opening tag, each on its own line
@@ -375,20 +432,17 @@ func attributeBlockDoc(attrs []parser.Attribute) []doc.Doc {
 	return []doc.Doc{doc.Indent(body...), doc.HardLine(), doc.Text("}")}
 }
 
-// alwaysBreaksChildren reports whether e's children always go on their own
-// lines: e is a block element, or a child is a block node or is written by
-// its own Write.
-func alwaysBreaksChildren(e *parser.Element, children []parser.Node) bool {
-	if e.IsBlockElement() {
-		return true
-	}
+// hasBlockChild reports whether a child always goes on its own line: a block
+// element, a statement, or a node written by its own Write other than an
+// HTML comment.
+func hasBlockChild(children []parser.Node) bool {
 	for _, c := range children {
 		switch c := c.(type) {
 		case *parser.Element:
 			if c.IsBlockElement() {
 				return true
 			}
-		case *parser.Text, *parser.StringExpression:
+		case *parser.Text, *parser.StringExpression, *parser.HTMLComment:
 		default:
 			return true
 		}

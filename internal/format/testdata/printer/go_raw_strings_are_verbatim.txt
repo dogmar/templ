@@ -1,0 +1,24 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<a href={ fmt.Sprintf(`a
+  b`, 1) }>x</a>
+	<p>{ fmt.Sprint(`a
+  b`) }</p>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<a
+		href={ fmt.Sprintf(`a
+  b`, 1) }
+	>
+		x
+	</a>
+	<p>
+		{ fmt.Sprint(`a
+  b`) }
+	</p>
+}

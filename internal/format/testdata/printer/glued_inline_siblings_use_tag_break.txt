@@ -1,15 +1,15 @@
 -- in --
 package main
 
-templ test() {
-	<p><span>a</span><span class="x">Formatting must never change what a template renders, so a glued boundary may only break inside of the next opening tag.</span></p>
+templ test(x bool) {
+	<p><span>The first span holds enough text to reach most of the way across here</span><span class="x">Formatting must never change what a template renders, so a glued boundary may only break inside of the next opening tag.</span></p>
 }
 -- out --
 package main
 
-templ test() {
+templ test(x bool) {
 	<p>
-		<span>a</span><span
+		<span>The first span holds enough text to reach most of the way across here</span><span
 			class="x"
 		>
 			Formatting must never change what a template renders, so a glued boundary may only break

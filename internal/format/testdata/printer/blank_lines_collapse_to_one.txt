@@ -16,15 +16,9 @@ package main
 
 templ test() {
 	<div>
-		<p>
-			a
-		</p>
+		<p>a</p>
 
-		<p>
-			b
-		</p>
-		<p>
-			c
-		</p>
+		<p>b</p>
+		<p>c</p>
 	</div>
 }

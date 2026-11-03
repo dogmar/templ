@@ -20,10 +20,7 @@ templ test(x bool) {
 	<span>
 		This span holds text long enough that its group has to break into lines, and it ends with a
 		space </span>
-	<div>
-		text before a comment <!-- c -->
-		and after it trailing space then newline  <b>bold</b>
-	</div>
+	<div>text before a comment <!-- c -->and after it trailing space then newline  <b>bold</b></div>
 	<p>
 		trailing space before a Go comment 
 		// c

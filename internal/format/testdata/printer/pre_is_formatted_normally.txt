@@ -9,7 +9,5 @@ templ test() {
 package main
 
 templ test() {
-	<pre>
-		some   text with lines
-	</pre>
+	<pre>some   text with lines</pre>
 }

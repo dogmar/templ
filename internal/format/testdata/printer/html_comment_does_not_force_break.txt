@@ -1,0 +1,14 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<span>a <!-- c --> b</span>
+	<p>short <!-- note --></p>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<span>a <!-- c -->b</span>
+	<p>short <!-- note --></p>
+}

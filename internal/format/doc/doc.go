@@ -116,6 +116,6 @@ func hasHard(d Doc) bool {
 	return false
 }
 
-// HasHardLine reports whether d contains a HardLine or BlankLine, so that
-// every group enclosing it must break.
+// HasHardLine reports whether d contains a HardLine, BlankLine or
+// LiteralLine, so that every group enclosing it must break.
 func HasHardLine(d Doc) bool { return hasHard(d) }
