@@ -545,25 +545,29 @@ func nodeDoc(n parser.Node, gluedBefore bool, next parser.Node, depth int) doc.D
 		// the whitespace around it differently, so the source syntax is kept.
 		return headerDoc("{! " + n.Expression.Value + " }")
 	case *parser.GoCode:
-		return verbatimDoc(multilineIfFormattedOnLines(n).Write, depth)
+		return verbatimDoc(multilineAsReparsed(n).Write, depth)
 	}
 	return verbatimDoc(n.Write, depth)
 }
 
-// multilineIfFormattedOnLines returns n, or a multi-line copy of it if n is
-// single-line but its code is formatted on more than one line, such as a
-// label. Written as single-line, the newline would make it multi-line when
-// parsed again, so it would be laid out differently on the next pass.
-func multilineIfFormattedOnLines(n *parser.GoCode) *parser.GoCode {
-	if n.Multiline {
+// multilineAsReparsed returns n, or a copy of it whose Multiline is whether
+// its code, formatted, spans more than one line, which is how the parser
+// reads it again: the parser sets Multiline when the code itself spans
+// lines, not when the braces are on lines of their own. Single-line code
+// formatted on more than one line, such as a label, written single-line
+// would become multi-line on the next pass, and multi-line code that formats
+// onto one line, written multi-line, would become single-line.
+func multilineAsReparsed(n *parser.GoCode) *parser.GoCode {
+	src, err := goformat.Source([]byte(n.Expression.Value))
+	if err != nil {
 		return n
 	}
-	src, err := goformat.Source([]byte(n.Expression.Value))
-	if err != nil || !bytes.Contains(src, []byte("\n")) {
+	multiline := bytes.Contains(src, []byte("\n"))
+	if multiline == n.Multiline {
 		return n
 	}
 	c := *n
-	c.Multiline = true
+	c.Multiline = multiline
 	return &c
 }
 
