@@ -236,3 +236,25 @@ func TestRunUsesWidth(t *testing.T) {
 		t.Error(diff)
 	}
 }
+
+func TestRunLogsStdinRenderMismatch(t *testing.T) {
+	logs := new(bytes.Buffer)
+	log := slog.New(slog.NewJSONHandler(logs, nil))
+	restore := format.ReplacePrinterForTest(func(tf *parser.TemplateFile, width int) ([]byte, error) {
+		out, err := format.Print(tf, width)
+		return bytes.ReplaceAll(out, []byte("Hello"), []byte("Goodbye")), err
+	})
+	defer restore()
+
+	stdout := new(strings.Builder)
+	err := Run(log, strings.NewReader("package test\n\ntempl a() {\n<p>Hello</p>\n}\n"), stdout, Arguments{ToStdout: true})
+	if err == nil || !strings.Contains(err.Error(), "stdin: formatting would change rendered output") {
+		t.Fatalf("expected a render mismatch error naming stdin, got %v", err)
+	}
+	if !strings.Contains(logs.String(), "formatting would change rendered output") {
+		t.Errorf("expected the error to be logged, got logs: %s", logs.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected nothing on stdout, got %q", stdout.String())
+	}
+}

@@ -104,3 +104,11 @@ func showWhitespace(s string) string {
 	s = strings.ReplaceAll(s, " ", "·")
 	return s
 }
+
+func TestConfigLineWidth(t *testing.T) {
+	for _, test := range []struct{ width, expected int }{{0, DefaultWidth}, {-5, DefaultWidth}, {40, 40}} {
+		if actual := (Config{Width: test.width}).LineWidth(); actual != test.expected {
+			t.Errorf("Width %d: expected LineWidth %d, got %d", test.width, test.expected, actual)
+		}
+	}
+}

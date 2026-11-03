@@ -18,16 +18,17 @@ type Config struct {
 	PrettierCommand string
 	// PrettierRequired indicates that formatting using Prettier must be applied.
 	PrettierRequired bool
-	// Width is the maximum line width. If zero, the default is DefaultWidth.
+	// Width is the maximum line width. If zero or negative, the default is DefaultWidth.
 	Width int
 }
 
-// DefaultWidth is the maximum line width used when Config.Width is zero.
+// DefaultWidth is the maximum line width used when Config.Width is zero or negative.
 const DefaultWidth = 100
 
-// LineWidth is the maximum line width: Width, or DefaultWidth if it is zero.
+// LineWidth is the maximum line width: Width, or DefaultWidth if Width is
+// zero or negative.
 func (c Config) LineWidth() int {
-	if c.Width == 0 {
+	if c.Width <= 0 {
 		return DefaultWidth
 	}
 	return c.Width
@@ -84,7 +85,11 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 
 	out, err := PrintRenderEquivalent(t, config.LineWidth())
 	if mismatch := (*rendercheck.MismatchError)(nil); errors.As(err, &mismatch) {
-		return nil, false, fmt.Errorf("%s: formatting would change rendered output: %w", fileName, err)
+		name := fileName
+		if name == "" {
+			name = "stdin"
+		}
+		return nil, false, fmt.Errorf("%s: formatting would change rendered output: %w", name, err)
 	}
 	if err != nil {
 		return nil, false, err

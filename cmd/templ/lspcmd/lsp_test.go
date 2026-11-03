@@ -21,6 +21,7 @@ import (
 	"github.com/a-h/templ/lsp/jsonrpc2"
 	"github.com/a-h/templ/lsp/protocol"
 	"github.com/a-h/templ/lsp/uri"
+	parser "github.com/a-h/templ/parser/v2"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -849,6 +850,82 @@ func TestFormatting(t *testing.T) {
 				t.Errorf("formatting mismatch (-expected +actual):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestFormattingReturnsNoEditsOnRenderMismatch(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	testOutput := bytes.NewBuffer(nil)
+	log := slog.New(slog.NewJSONHandler(testOutput, nil))
+	defer func() {
+		if t.Failed() {
+			fmt.Println(testOutput.String())
+		}
+	}()
+	ctx, appDir, _, server, teardown, err := Setup(ctx, log, Arguments{})
+	if err != nil {
+		t.Fatalf("failed to setup test: %v", err)
+	}
+	defer teardown(t)
+	defer cancel()
+
+	fileURI := uri.URI("file://" + appDir + "/formatting.templ")
+	templFile, err := os.ReadFile(appDir + "/formatting.templ")
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	err = server.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: fileURI, LanguageID: "templ", Version: 1, Text: string(templFile)},
+	})
+	if err != nil {
+		t.Fatalf("failed to register open file: %v", err)
+	}
+	formatDocument := func() []protocol.TextEdit {
+		edits, err := server.Formatting(ctx, &protocol.DocumentFormattingParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: fileURI},
+		})
+		if err != nil {
+			t.Fatalf("failed to format: %v", err)
+		}
+		return edits
+	}
+	// Wait until the document can be formatted.
+	var edits []protocol.TextEdit
+	for range 3 {
+		if edits = formatDocument(); len(edits) > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond * 500)
+	}
+	if len(edits) == 0 {
+		t.Fatal("expected formatting edits, got none")
+	}
+	formatted := edits[0].NewText
+
+	// A printer that changes the rendered output must produce no edits.
+	restore := format.ReplacePrinterForTest(func(tf *parser.TemplateFile, width int) ([]byte, error) {
+		out, err := format.Print(tf, width)
+		return bytes.ReplaceAll(out, []byte("Formatted()"), []byte("Changed()")), err
+	})
+	edits = formatDocument()
+	restore()
+	if len(edits) != 0 {
+		t.Fatalf("expected no edits on a render mismatch, got %v", edits)
+	}
+	if !strings.Contains(testOutput.String(), "formatting would change rendered output") {
+		t.Error("expected the mismatch to be logged")
+	}
+
+	// The document was not replaced: formatting again gives the same text.
+	edits = formatDocument()
+	if len(edits) == 0 {
+		t.Fatal("expected formatting edits, got none")
+	}
+	if diff := cmp.Diff(formatted, edits[0].NewText); diff != "" {
+		t.Errorf("expected the document to be unchanged by the failed format (-expected +actual):\n%s", diff)
 	}
 }
 
