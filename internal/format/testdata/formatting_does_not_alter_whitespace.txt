@@ -9,5 +9,8 @@ templ nested() {
 package test
 
 templ nested() {
-	<div>{ "the" }<div>{ "other" }</div></div>
+	<div>
+		{ "the" }
+		<div>{ "other" }</div>
+	</div>
 }

@@ -31,7 +31,7 @@ func Print(t *parser.TemplateFile, width int) ([]byte, error) {
 	for i, n := range t.Nodes {
 		var err error
 		if ht, ok := n.(*parser.HTMLTemplate); ok {
-			err = printTemplate(&buf, ht, width)
+			err = printHTMLTemplate(&buf, ht, width)
 		} else {
 			err = n.Write(&buf, 0)
 		}
@@ -60,7 +60,7 @@ func templateFileNodeSeparator(nodes []parser.TemplateFileNode, i int) string {
 	return "\n\n"
 }
 
-func printTemplate(buf *bytes.Buffer, t *parser.HTMLTemplate, width int) error {
+func printHTMLTemplate(buf *bytes.Buffer, t *parser.HTMLTemplate, width int) error {
 	// The header is what Write produces for the template without children:
 	// "templ Name(args) {\n}".
 	var header bytes.Buffer
@@ -74,7 +74,7 @@ func printTemplate(buf *bytes.Buffer, t *parser.HTMLTemplate, width int) error {
 		return nil
 	}
 	body := doc.Concat(
-		doc.Indent(doc.HardLine(), nodesDoc(t.Children, siblings{ctx: parser.BoundaryInElement}, 1)),
+		doc.Indent(doc.HardLine(), linesGroup(children, nodesDoc(t.Children, siblings{ctx: parser.BoundaryInElement}, 1))),
 		verticalWhitespace(children[len(children)-1], doc.HardLine(), 0),
 		doc.Text("}"),
 	)
@@ -176,6 +176,20 @@ func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 				// glued to the next node, which is how it parses again.
 				words[len(words)-1] = doc.Concat(words[len(words)-1], doc.Text(" "))
 				kind = parser.BoundaryGlued
+			}
+			if kind == parser.BoundaryGlued && len(words) > 0 && !isOwnLine(g.node) {
+				// A node glued to the text before it is part of that text's
+				// last word, so that the Fill breaks before the word when
+				// the two do not fit on the line.
+				last := len(words) - 1
+				if t, ok := g.node.(*parser.Text); ok {
+					ps := textParts(t, s.caseBody)
+					words[last] = doc.Concat(words[last], ps[0])
+					words = append(words, ps[1:]...)
+				} else {
+					words[last] = doc.Concat(words[last], nodeDoc(g.node, true, nexts[i], depth))
+				}
+				continue
 			}
 			flush()
 			if sep := boundaryDoc(prev, g, kind, depth); sep != nil {
@@ -423,7 +437,18 @@ func bodyDoc(nodes []parser.Node, next parser.Node, depth int, caseBody bool) do
 		return doc.Concat()
 	}
 	s := siblings{ctx: parser.BoundaryInBody, after: next, caseBody: caseBody}
-	return doc.Indent(doc.HardLine(), doc.Group(nodesDoc(nodes, s, depth+1)))
+	return doc.Indent(doc.HardLine(), linesGroup(nonWhitespace(nodes), nodesDoc(nodes, s, depth+1)))
+}
+
+// linesGroup is d, the layout of the sibling nodes children on lines of
+// their own (a template's or a statement's body). When no child goes on its
+// own line, d is grouped, so a run of inline siblings that fits stays on
+// one line; otherwise every boundary between them breaks.
+func linesGroup(children []parser.Node, d doc.Doc) doc.Doc {
+	if hasBlockChild(children) {
+		return d
+	}
+	return doc.Group(d)
 }
 
 // bodyEndDoc is the boundary between the last node of a body and the line

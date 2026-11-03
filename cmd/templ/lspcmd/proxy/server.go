@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/a-h/templ/internal/format"
 	"github.com/a-h/templ/internal/imports"
 	"github.com/a-h/templ/internal/lazyloader"
+	"github.com/a-h/templ/internal/rendercheck"
 	"github.com/a-h/templ/internal/skipdir"
 	lsp "github.com/a-h/templ/lsp/protocol"
 	"github.com/a-h/templ/lsp/uri"
@@ -1137,11 +1139,15 @@ func (p *Server) Formatting(ctx context.Context, params *lsp.DocumentFormattingP
 		p.Log.Error("prettier failure", slog.Any("error", err))
 		return
 	}
-	w := new(strings.Builder)
-	err = template.Write(w)
+	formatted, err := format.PrintRenderEquivalent(template, p.formatConf.LineWidth())
+	if mismatch := (*rendercheck.MismatchError)(nil); errors.As(err, &mismatch) {
+		// Return no edits rather than change what the template renders.
+		p.Log.Error("formatting would change rendered output", slog.String("uri", template.Filepath), slog.Any("error", err))
+		return nil, nil
+	}
 	if err != nil {
-		p.Log.Error("handleFormatting: faled to write template", slog.Any("error", err))
-		return
+		p.Log.Error("handleFormatting: failed to format template", slog.Any("error", err))
+		return nil, nil
 	}
 	// Replace everything.
 	result = append(result, lsp.TextEdit{
@@ -1149,9 +1155,9 @@ func (p *Server) Formatting(ctx context.Context, params *lsp.DocumentFormattingP
 			Start: lsp.Position{},
 			End:   lsp.Position{Line: uint32(len(d.Lines)), Character: 0},
 		},
-		NewText: w.String(),
+		NewText: string(formatted),
 	})
-	d.Replace(w.String())
+	d.Replace(string(formatted))
 	return
 }
 

@@ -17,5 +17,7 @@ templ conditionalAttributes(addClass bool) {
 			class="itWasTrue"
 		}
 		width="300"
-	>Content</div>
+	>
+		Content
+	</div>
 }

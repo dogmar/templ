@@ -14,8 +14,6 @@ package test
 
 templ hello() {
 	<div style="margin: 0; padding: 0">
-		<div style="display: flex">
-			<span style="color: red"></span>
-		</div>
+		<div style="display: flex"><span style="color: red"></span></div>
 	</div>
 }

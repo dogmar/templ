@@ -8,5 +8,13 @@ templ test() {
 package main
 
 templ test() {
-	<div>Linebreaks<br/>used<br/>for<br/>spacing</div>
+	<div>
+		Linebreaks
+		<br/>
+		used
+		<br/>
+		for
+		<br/>
+		spacing
+	</div>
 }

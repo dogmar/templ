@@ -2,10 +2,12 @@ package format
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	"github.com/a-h/templ/internal/imports"
 	"github.com/a-h/templ/internal/prettier"
+	"github.com/a-h/templ/internal/rendercheck"
 	parser "github.com/a-h/templ/parser/v2"
 	"github.com/a-h/templ/parser/v2/visitor"
 )
@@ -16,6 +18,51 @@ type Config struct {
 	PrettierCommand string
 	// PrettierRequired indicates that formatting using Prettier must be applied.
 	PrettierRequired bool
+	// Width is the maximum line width. If zero, the default is DefaultWidth.
+	Width int
+}
+
+// DefaultWidth is the maximum line width used when Config.Width is zero.
+const DefaultWidth = 100
+
+// LineWidth is the maximum line width: Width, or DefaultWidth if it is zero.
+func (c Config) LineWidth() int {
+	if c.Width == 0 {
+		return DefaultWidth
+	}
+	return c.Width
+}
+
+// printTemplate prints a template file. It is a variable so that tests can
+// replace it with a printer that changes the rendered output.
+var printTemplate = Print
+
+// ReplacePrinterForTest replaces the printer used by Templ and
+// PrintRenderEquivalent with p, and returns a function that restores it.
+// It lets tests outside this package exercise the render-equivalence
+// self-check; it is not safe for concurrent use.
+func ReplacePrinterForTest(p func(t *parser.TemplateFile, width int) ([]byte, error)) (restore func()) {
+	prev := printTemplate
+	printTemplate = p
+	return func() { printTemplate = prev }
+}
+
+// PrintRenderEquivalent prints t within width columns, then parses the
+// output again and checks that it is render-equivalent to t. If it is not,
+// it returns a *rendercheck.MismatchError and no output.
+func PrintRenderEquivalent(t *parser.TemplateFile, width int) ([]byte, error) {
+	out, err := printTemplate(t, width)
+	if err != nil {
+		return nil, fmt.Errorf("formatting error: %w", err)
+	}
+	reparsed, err := parser.ParseString(string(out))
+	if err != nil {
+		return nil, fmt.Errorf("formatted output does not parse: %w", err)
+	}
+	if err = rendercheck.Equivalent(t, reparsed); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Templ formats templ source, returning the formatted output, whether it changed, and an error if any.
@@ -35,11 +82,13 @@ func Templ(src []byte, fileName string, config Config) (output []byte, changed b
 		return nil, false, err
 	}
 
-	w := new(bytes.Buffer)
-	if err = t.Write(w); err != nil {
-		return nil, false, fmt.Errorf("formatting error: %w", err)
+	out, err := PrintRenderEquivalent(t, config.LineWidth())
+	if mismatch := (*rendercheck.MismatchError)(nil); errors.As(err, &mismatch) {
+		return nil, false, fmt.Errorf("%s: formatting would change rendered output: %w", fileName, err)
 	}
-	out := w.Bytes()
+	if err != nil {
+		return nil, false, err
+	}
 	changed = !bytes.Equal(src, out)
 	return out, changed, nil
 }

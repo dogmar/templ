@@ -1,6 +1,7 @@
 package fmtcmd
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/a-h/templ/internal/format"
+	parser "github.com/a-h/templ/parser/v2"
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/tools/txtar"
 )
@@ -183,4 +186,53 @@ func TestFormat(t *testing.T) {
 			t.Error(diff)
 		}
 	})
+}
+
+func TestRunLeavesFileUntouchedOnRenderMismatch(t *testing.T) {
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// The injected printer changes the rendered output of bad.templ only.
+	restore := format.ReplacePrinterForTest(func(tf *parser.TemplateFile, width int) ([]byte, error) {
+		out, err := format.Print(tf, width)
+		if err != nil || filepath.Base(tf.Filepath) != "bad.templ" {
+			return out, err
+		}
+		return bytes.ReplaceAll(out, []byte("Hello"), []byte("Goodbye")), nil
+	})
+	defer restore()
+
+	dir := t.TempDir()
+	bad := "package test\n\ntempl bad() {\n<p>Hello</p>\n}\n"
+	good := "package test\n\ntempl good() {\n<p>Hello</p>\n}\n"
+	goodFormatted := "package test\n\ntempl good() {\n\t<p>Hello</p>\n}\n"
+	badPath, goodPath := filepath.Join(dir, "bad.templ"), filepath.Join(dir, "good.templ")
+	if err := os.WriteFile(badPath, []byte(bad), 0660); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(goodPath, []byte(good), 0660); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Run(log, nil, nil, Arguments{Files: []string{dir}})
+	if err == nil || !strings.Contains(err.Error(), "formatting would change rendered output") {
+		t.Fatalf("expected a render mismatch error, got %v", err)
+	}
+	if actual, _ := os.ReadFile(badPath); string(actual) != bad {
+		t.Errorf("expected bad.templ to be untouched, got:\n%s", actual)
+	}
+	if actual, _ := os.ReadFile(goodPath); string(actual) != goodFormatted {
+		t.Errorf("expected good.templ to be formatted, got:\n%s", actual)
+	}
+}
+
+func TestRunUsesWidth(t *testing.T) {
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	src := "package test\n\ntempl a() {\n\t<p>one two three four five six</p>\n}\n"
+	expected := "package test\n\ntempl a() {\n\t<p>\n\t\tone two three\n\t\tfour five six\n\t</p>\n}\n"
+	stdout := new(strings.Builder)
+	if err := Run(log, strings.NewReader(src), stdout, Arguments{ToStdout: true, Width: 22}); err != nil {
+		t.Fatalf("failed to run format command: %v", err)
+	}
+	if diff := cmp.Diff(expected, stdout.String()); diff != "" {
+		t.Error(diff)
+	}
 }

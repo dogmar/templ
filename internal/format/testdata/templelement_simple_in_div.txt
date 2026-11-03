@@ -10,7 +10,5 @@ templ f() {
 package p
 
 templ f() {
-	<div>
-		@Other(p.Test, "s")
-	</div>
+	<div>@Other(p.Test, "s")</div>
 }

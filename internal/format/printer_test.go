@@ -21,6 +21,20 @@ var printerFixtureChecks = map[string]func(t *testing.T, out string){
 			t.Error("expected a tag break inside the glued <span> opening tag")
 		}
 	},
+	"glued_text_before_element_moves_with_its_word.txt": func(t *testing.T, out string) {
+		for _, s := range []string{"\t\tto<a href=\"/docs/formatting\">the formatting docs</a>.\n", "\t\tto<a\n\t\t\thref="} {
+			if !strings.Contains(out, s) {
+				t.Errorf("expected the glued word to start the line with its element: %q", s)
+			}
+		}
+	},
+	"template_inline_children_share_a_line.txt": func(t *testing.T, out string) {
+		for _, s := range []string{"\t<b>x</b> <i>y</i>\n}", "\tmore text @c() and\n", "\t\t<b>x</b> <i>y</i>\n\t}"} {
+			if !strings.Contains(out, s) {
+				t.Errorf("expected the inline run %q on one line", s)
+			}
+		}
+	},
 	"soft_boundary_becomes_newline.txt": func(t *testing.T, out string) {
 		for _, s := range []string{"\t\t<b>one</b>\n", "\t\t<i>two</i>\n", "\t\t<em>three</em>\n"} {
 			if !strings.Contains(out, s) {

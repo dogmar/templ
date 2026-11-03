@@ -1,0 +1,29 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<p>
+		A sentence that runs long enough to reach the end of the line and then links to<a href="/docs/formatting">the formatting docs</a>.
+	</p>
+	<p>
+		Short then a long glued link to<a href="/docs/formatting" class="link link-primary underline decoration-dotted underline-offset-4 hover:text-blue-700">the formatting documentation page</a>.
+	</p>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<p>
+		A sentence that runs long enough to reach the end of the line and then links
+		to<a href="/docs/formatting">the formatting docs</a>.
+	</p>
+	<p>
+		Short then a long glued link
+		to<a
+			href="/docs/formatting"
+			class="link link-primary underline decoration-dotted underline-offset-4 hover:text-blue-700"
+		>
+			the formatting documentation page
+		</a>.
+	</p>
+}
