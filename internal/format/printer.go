@@ -367,9 +367,13 @@ func startsWithKeyword(n parser.Node) bool {
 	return ok && startsWithWord(t.Value, statementKeywords...)
 }
 
+// isBlockElement reports whether n is an element laid out as a block, on
+// lines of its own: a block element other than <br>. The boundaries around
+// <br> are ignored, as for any block element, so it can go anywhere on a
+// line, and it is laid out inline, like the line break it renders.
 func isBlockElement(n parser.Node) bool {
 	e, ok := n.(*parser.Element)
-	return ok && e.IsBlockElement()
+	return ok && e.IsBlockElement() && e.Name != "br"
 }
 
 // generatorNexts returns, for each non-whitespace node in nodes, the node
@@ -1093,7 +1097,7 @@ func attributeBlockDoc(attrs []parser.Attribute) []doc.Doc {
 // element, or a node that is always written on lines of its own.
 func hasBlockChild(children []parser.Node) bool {
 	for _, c := range children {
-		if e, ok := c.(*parser.Element); ok && e.IsBlockElement() || isOwnLine(c) {
+		if isBlockElement(c) || isOwnLine(c) {
 			return true
 		}
 	}
