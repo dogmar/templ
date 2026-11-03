@@ -549,9 +549,44 @@ func nodeDoc(n parser.Node, gluedBefore bool, next parser.Node, depth int) doc.D
 		// the whitespace around it differently, so the source syntax is kept.
 		return headerDoc("{! " + n.Expression.Value + " }")
 	case *parser.GoCode:
+		if !gofmtKeepsTokens(n.Expression.Value) {
+			// Write would drop tokens, such as an empty statement, that
+			// lay out the generated code, so the code is kept as written.
+			return linesDoc("{{ "+strings.TrimSpace(n.Expression.Value)+" }}", doc.LiteralLine())
+		}
 		return verbatimDoc(multilineAsReparsed(n).Write, depth)
 	}
 	return verbatimDoc(n.Write, depth)
+}
+
+// gofmtKeepsTokens reports whether formatting the Go code s keeps its
+// tokens, counting explicit semicolons but not those a newline inserts. It
+// is true if s cannot be formatted, since Write then keeps s as it is.
+func gofmtKeepsTokens(s string) bool {
+	formatted, err := goformat.Source([]byte(s))
+	if err != nil {
+		return true
+	}
+	return slices.Equal(goTokens(s), goTokens(string(formatted)))
+}
+
+// goTokens returns the tokens of the Go code s, with the semicolons that
+// a newline or the end of s inserts left out.
+func goTokens(s string) []string {
+	var tokens []string
+	fset := token.NewFileSet()
+	var sc scanner.Scanner
+	sc.Init(fset.AddFile("", fset.Base(), len(s)), []byte(s), nil, scanner.ScanComments)
+	for {
+		_, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			return tokens
+		}
+		if tok == token.SEMICOLON && lit != ";" {
+			continue
+		}
+		tokens = append(tokens, tok.String()+lit)
+	}
 }
 
 // multilineAsReparsed returns n, or a copy of it whose Multiline is whether
@@ -1027,11 +1062,12 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 	return codeDoc(a.Write)
 }
 
-// expressionAttributeDoc is a, written as its Write does, with exceptions that keep the value as the next pass reads it. Write formats
-// a multi-line expression as the element of a composite literal. When the
-// result is a single line, it can keep that literal's indentation, which
-// the next pass trims, so a is written as its Write output would be
-// written once parsed again. The parser keeps the whitespace after a
+// expressionAttributeDoc is a, written as its Write does, with exceptions
+// that keep the value as the next pass reads it. Write formats a multi-line
+// expression as the element of a composite literal. When the result is a
+// single line, it can keep that literal's indentation, which the next pass
+// trims, so a is written as its Write output would be written once parsed
+// again. The parser keeps the whitespace after a
 // trailing comma as part of the value, and a newline there lays the call
 // around the expression in the generated code out on lines of its own, so
 // when Write would add or drop a newline at an edge of the value, or when
