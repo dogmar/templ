@@ -15,11 +15,7 @@ package A
 
 templ A() {
 	<p>if
-		0{
-		}0
+		0{ }0
 	</p>
-	<p>
-		a if 0{
-		}0
-	</p>
+	<p>a if 0{ }0</p>
 }

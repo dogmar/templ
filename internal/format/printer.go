@@ -578,6 +578,9 @@ func multilineAsReparsed(n *parser.GoCode) *parser.GoCode {
 // indentation (see codeDoc).
 func stringExpressionDoc(n *parser.StringExpression) doc.Doc {
 	leading, trimmed, trailing := splitEdges(n.Expression.Value)
+	if trimmed == "" {
+		return doc.Text("{ }")
+	}
 	edge := func(ws string) doc.Doc {
 		switch strings.Count(ws, "\n") {
 		case 0:

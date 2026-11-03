@@ -11,7 +11,7 @@ templ A() {
 package A
 
 templ A() {
-	<p>@A {}{  }</p>
+	<p>@A {}{ }</p>
 	<p>
 		@A {
 		}
