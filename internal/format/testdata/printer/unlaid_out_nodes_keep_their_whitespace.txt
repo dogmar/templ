@@ -1,0 +1,49 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<div>
+		<span>a</span>{ "s" }
+		if x {
+			<b>y</b>
+		}
+		label @c()
+		@d()
+		<!--
+  a comment
+    over lines
+-->
+		{{ y := 1 }}
+		<i>{ y }</i>
+		<style>
+  .a { color: red; }
+</style>
+	</div>
+	<span><em>e</em> @c() tail</span>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<div>
+		<span>a</span>{ "s" }
+		if x {
+			<b>y</b>
+		}
+		label @c()
+		@d()
+		<!--
+  a comment
+    over lines
+-->
+		{{ y := 1 }}
+		<i>{ y }</i>
+		<style>
+  .a { color: red; }
+</style>
+	</div>
+	<span>
+		<em>e</em>
+		@c() tail
+	</span>
+}

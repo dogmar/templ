@@ -13,10 +13,11 @@ type Doc interface{ isDoc() }
 type lineKind int
 
 const (
-	lineSpace lineKind = iota // a space when flat, a newline when broken
-	lineSoft                  // nothing when flat, a newline when broken
-	lineHard                  // always a newline
-	lineBlank                 // always a newline followed by an empty line
+	lineSpace   lineKind = iota // a space when flat, a newline when broken
+	lineSoft                    // nothing when flat, a newline when broken
+	lineHard                    // always a newline
+	lineBlank                   // always a newline followed by an empty line
+	lineLiteral                 // always a newline, without indentation or trimming
 )
 
 type text struct{ s string }
@@ -72,6 +73,11 @@ func HardLine() Doc { return line{lineHard} }
 // enclosing group.
 func BlankLine() Doc { return line{lineBlank} }
 
+// LiteralLine is always a newline, and breaks every enclosing group. The
+// next line is not indented, and the line before it keeps its trailing
+// whitespace, so that multi-line content can be written verbatim.
+func LiteralLine() Doc { return line{lineLiteral} }
+
 // Group lays its contents out flat if they fit on the line, else broken.
 func Group(docs ...Doc) Doc { return group{docs, anyHard(docs)} }
 
@@ -97,7 +103,7 @@ func anyHard(docs []Doc) bool {
 func hasHard(d Doc) bool {
 	switch d := d.(type) {
 	case line:
-		return d.kind == lineHard || d.kind == lineBlank
+		return d.kind != lineSpace && d.kind != lineSoft
 	case group:
 		return d.hard
 	case indent:
@@ -109,3 +115,7 @@ func hasHard(d Doc) bool {
 	}
 	return false
 }
+
+// HasHardLine reports whether d contains a HardLine or BlankLine, so that
+// every group enclosing it must break.
+func HasHardLine(d Doc) bool { return hasHard(d) }

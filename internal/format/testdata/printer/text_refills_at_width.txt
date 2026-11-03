@@ -1,0 +1,20 @@
+-- in --
+package main
+
+templ test() {
+	<div>
+		Templ components are Go functions, and
+		this sentence keeps going on and on so that it is far longer than any single line could hold, which means the printer has
+		to refill it into several lines that each fit within the width limit of one hundred columns.
+	</div>
+}
+-- out --
+package main
+
+templ test() {
+	<div>
+		Templ components are Go functions, and this sentence keeps going on and on so that it is far
+		longer than any single line could hold, which means the printer has to refill it into
+		several lines that each fit within the width limit of one hundred columns.
+	</div>
+}

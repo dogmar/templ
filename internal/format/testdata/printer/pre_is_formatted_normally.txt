@@ -1,0 +1,15 @@
+-- in --
+package main
+
+templ test() {
+	<pre>  some   text
+  with lines</pre>
+}
+-- out --
+package main
+
+templ test() {
+	<pre>
+		some   text with lines
+	</pre>
+}

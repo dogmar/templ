@@ -108,3 +108,10 @@ func TestHardLineInFillContentBreaksEnclosingGroup(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestLiteralLineKeepsTextVerbatim(t *testing.T) {
+	d := Group(Text("<p"), Indent(Line(), Text(`x="a  `), LiteralLine(), Text(`  b"`)), SoftLine(), Text(">"))
+	if got, want := Print(d, 100), "<p\n\tx=\"a  \n  b\"\n>"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

@@ -47,6 +47,10 @@ func Print(d Doc, width int) string {
 			stack = pushReversed(stack, c.indent+1, c.mode, d.children)
 		case line:
 			switch {
+			case d.kind == lineLiteral:
+				shouldRemeasure = shouldRemeasure || c.mode == modeFlat
+				out = append(out, '\n')
+				pos = 0
 			case d.kind == lineBlank:
 				shouldRemeasure = shouldRemeasure || c.mode == modeFlat
 				newline(0)
@@ -152,7 +156,7 @@ func fits(next cmd, rest []cmd, remaining int, mustBeFlat bool) bool {
 			}
 			stack = pushReversed(stack, c.indent, m, d.children)
 		case line:
-			if c.mode == modeBreak || d.kind == lineHard || d.kind == lineBlank {
+			if c.mode == modeBreak || (d.kind != lineSpace && d.kind != lineSoft) {
 				return true
 			}
 			if d.kind == lineSpace {

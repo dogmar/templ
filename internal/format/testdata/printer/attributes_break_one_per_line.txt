@@ -1,0 +1,19 @@
+-- in --
+package main
+
+templ test() {
+	<a class="button button-primary button-large" href="/some/very/long/path/to/a/page" id="main-link" data-x="1">Go</a>
+}
+-- out --
+package main
+
+templ test() {
+	<a
+		class="button button-primary button-large"
+		href="/some/very/long/path/to/a/page"
+		id="main-link"
+		data-x="1"
+	>
+		Go
+	</a>
+}

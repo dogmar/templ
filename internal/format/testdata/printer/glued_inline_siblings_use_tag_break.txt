@@ -1,0 +1,19 @@
+-- in --
+package main
+
+templ test() {
+	<p><span>a</span><span class="x">Formatting must never change what a template renders, so a glued boundary may only break inside of the next opening tag.</span></p>
+}
+-- out --
+package main
+
+templ test() {
+	<p>
+		<span>a</span><span
+			class="x"
+		>
+			Formatting must never change what a template renders, so a glued boundary may only break
+			inside of the next opening tag.
+		</span>
+	</p>
+}
