@@ -1,0 +1,40 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<p>text @c() more</p>
+	<p>
+		text
+		@c()
+		more
+	</p>
+	<span>@icon() Save</span>
+	<p>
+		@c()
+		.method
+		@c()
+		{ "s" }
+		@c()
+		(aside)
+	</p>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<p>text @c() more</p>
+	<p>
+		text
+		@c()
+		more
+	</p>
+	<span>@icon() Save</span>
+	<p>
+		@c()
+		.method
+		@c()
+		{ "s" }
+		@c()
+		(aside)
+	</p>
+}

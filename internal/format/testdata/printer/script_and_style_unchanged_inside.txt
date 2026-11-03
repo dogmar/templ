@@ -1,0 +1,30 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<div>
+<script type="module">
+  const x = {{ x }};
+      if (x) {   go();   }
+</script>
+	<style>
+ .a {    color: red; }
+   .b { }
+</style>
+	</div>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<div>
+		<script type="module">
+  const x = {{ x }};
+      if (x) {   go();   }
+</script>
+		<style>
+ .a {    color: red; }
+   .b { }
+</style>
+	</div>
+}

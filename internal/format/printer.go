@@ -74,7 +74,7 @@ func printTemplate(buf *bytes.Buffer, t *parser.HTMLTemplate, width int) error {
 		return nil
 	}
 	body := doc.Concat(
-		doc.Indent(doc.HardLine(), nodesDoc(t.Children, parser.BoundaryInElement, 1)),
+		doc.Indent(doc.HardLine(), nodesDoc(t.Children, siblings{ctx: parser.BoundaryInElement}, 1)),
 		verticalWhitespace(children[len(children)-1], doc.HardLine(), 0),
 		doc.Text("}"),
 	)
@@ -132,12 +132,24 @@ func nonWhitespace(nodes []parser.Node) []parser.Node {
 	return ns
 }
 
+// siblings is how the generator writes a list of sibling nodes.
+type siblings struct {
+	ctx parser.BoundaryContext
+	// after is the node the generator passes as next to the last node: the
+	// node after the enclosing statement. It is nil for the children of an
+	// element, a template or a call.
+	after parser.Node
+	// caseBody reports whether the nodes are a switch case body, in which
+	// a line starting with case or default starts the next case.
+	caseBody bool
+}
+
 // nodesDoc lays out sibling nodes whose lines are at depth, writing each
-// boundary between them by its kind. ctx is the kind of node list holding
-// them. The boundaries before the first node and after the last are left to
-// the caller.
-func nodesDoc(nodes []parser.Node, ctx parser.BoundaryContext, depth int) doc.Doc {
+// boundary between them by its kind. The boundaries before the first node
+// and after the last are left to the caller.
+func nodesDoc(nodes []parser.Node, s siblings, depth int) doc.Doc {
 	gs := gaps(nodes)
+	nexts := generatorNexts(nodes, s)
 	var parts []doc.Doc
 	var words []doc.Doc // the Fill of the current run of text
 	flush := func() {
@@ -150,14 +162,20 @@ func nodesDoc(nodes []parser.Node, ctx parser.BoundaryContext, depth int) doc.Do
 		glued := false
 		if i > 0 {
 			prev := gs[i-1].node
-			kind := parser.ClassifyBoundary(prev, g.node, g.ws, ctx)
+			kind := parser.ClassifyBoundary(prev, g.node, g.ws, s.ctx)
 			if t, ok := g.node.(*parser.Text); ok && kind == parser.BoundarySoft {
 				if _, prevIsText := prev.(*parser.Text); prevIsText {
 					// Adjacent text joins the same Fill.
-					words = append(words, textJoin(prev, t, g))
-					words = append(words, textParts(t)...)
+					words = append(words, textJoin(prev, t, g, s.caseBody))
+					words = append(words, textParts(t, s.caseBody)...)
 					continue
 				}
+			}
+			if kind == parser.BoundarySoft && endsWithSpace(prev) && len(words) > 0 && !isOwnLine(g.node) {
+				// The boundary's space is written at the end of the text,
+				// glued to the next node, which is how it parses again.
+				words[len(words)-1] = doc.Concat(words[len(words)-1], doc.Text(" "))
+				kind = parser.BoundaryGlued
 			}
 			flush()
 			if sep := boundaryDoc(prev, g, kind, depth); sep != nil {
@@ -166,13 +184,45 @@ func nodesDoc(nodes []parser.Node, ctx parser.BoundaryContext, depth int) doc.Do
 			glued = kind == parser.BoundaryGlued
 		}
 		if t, ok := g.node.(*parser.Text); ok {
-			words = textParts(t)
+			words = textParts(t, s.caseBody)
 			continue
 		}
-		parts = append(parts, nodeDoc(g.node, glued, depth))
+		parts = append(parts, nodeDoc(g.node, glued, nexts[i], depth))
 	}
 	flush()
 	return doc.Concat(parts...)
+}
+
+// generatorNexts returns, for each non-whitespace node in nodes, the node
+// the generator passes to it as next. Element children are written without
+// their *Whitespace nodes, and a body without its leading and trailing ones.
+func generatorNexts(nodes []parser.Node, s siblings) []parser.Node {
+	written := nonWhitespace(nodes)
+	if s.ctx == parser.BoundaryInBody {
+		written = trimTrailingWhitespace(nodes)
+	}
+	var nexts []parser.Node
+	for i, n := range written {
+		if _, ok := n.(*parser.Whitespace); ok {
+			continue
+		}
+		next := s.after
+		if i+1 < len(written) {
+			next = written[i+1]
+		}
+		nexts = append(nexts, next)
+	}
+	return nexts
+}
+
+func trimTrailingWhitespace(nodes []parser.Node) []parser.Node {
+	for len(nodes) > 0 {
+		if _, ok := nodes[len(nodes)-1].(*parser.Whitespace); !ok {
+			break
+		}
+		nodes = nodes[:len(nodes)-1]
+	}
+	return nodes
 }
 
 // boundaryDoc writes the boundary of the given kind between prev and g.node.
@@ -186,13 +236,16 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int) doc.D
 		return nil
 	case kind == parser.BoundaryFixed:
 		return sourceWhitespace(g, verticalWhitespace(prev, doc.HardLine(), depth))
-	case !isLaidOut(prev) || !isLaidOut(g.node):
-		// Nodes printed by their own Write stay on their own lines where
-		// that is safe, and otherwise keep the whitespace they had.
-		if kind == parser.BoundaryIgnored && !noBreak {
-			return newline(g)
-		}
+	case startsWithSpace(g.node) || continuesCall(prev, g.node):
 		return sourceWhitespace(g, verticalWhitespace(prev, newline(g), depth))
+	case isOwnLine(prev) || isOwnLine(g.node):
+		// A soft boundary renders the same as a space or a newline. Text
+		// ending with a space keeps the whitespace it had, so that the
+		// space does not end up at the end of a line.
+		if noBreak {
+			return sourceWhitespace(g, verticalWhitespace(prev, newline(g), depth))
+		}
+		return newline(g)
 	case noBreak:
 		if kind == parser.BoundarySoft {
 			return doc.Text(" ")
@@ -204,6 +257,23 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int) doc.D
 		return doc.Line()
 	}
 	return doc.SoftLine()
+}
+
+// continuesCall reports whether next, written on the same line as the call
+// prev, would be parsed as part of the call: a space followed by . ( or [
+// continues its Go expression, and a { starts its children. Only a newline
+// ends the call before them.
+func continuesCall(prev, next parser.Node) bool {
+	if _, ok := prev.(*parser.TemplElementExpression); !ok {
+		return false
+	}
+	switch next := next.(type) {
+	case *parser.Text:
+		return next.Value != "" && strings.ContainsRune(".([", rune(next.Value[0]))
+	case *parser.StringExpression, *parser.ChildrenExpression, *parser.GoCode, *parser.CallTemplateExpression:
+		return true
+	}
+	return false
 }
 
 // sourceWhitespace is the whitespace written before g.node, with vertical
@@ -235,27 +305,152 @@ func newline(g gap) doc.Doc {
 	return doc.HardLine()
 }
 
-// isLaidOut reports whether the boundaries around n are laid out by this
-// printer rather than kept as they were. An HTML comment is written by its
-// own Write, but whitespace around it can be added or removed safely.
-func isLaidOut(n parser.Node) bool {
-	switch n.(type) {
+// isOwnLine reports whether n is always written on lines of its own,
+// rather than laid out inline with its siblings: statements, calls with
+// children, and nodes written by their own Write other than HTML comments.
+func isOwnLine(n parser.Node) bool {
+	switch n := n.(type) {
 	case *parser.Element, *parser.Text, *parser.StringExpression, *parser.HTMLComment:
-		return true
+		return false
+	case *parser.TemplElementExpression:
+		return len(n.Children) > 0
 	}
-	return false
+	return true
 }
 
 // nodeDoc lays out a node other than text, whose lines are at depth.
-// gluedBefore reports whether the boundary before it is glued.
-func nodeDoc(n parser.Node, gluedBefore bool, depth int) doc.Doc {
+// gluedBefore reports whether the boundary before it is glued, and next is
+// the node the generator passes to it as next.
+func nodeDoc(n parser.Node, gluedBefore bool, next parser.Node, depth int) doc.Doc {
 	switch n := n.(type) {
 	case *parser.Element:
 		return elementDoc(n, gluedBefore, depth)
 	case *parser.StringExpression:
 		return codeDoc(n.Write)
+	case *parser.IfExpression:
+		return ifDoc(n, next, depth)
+	case *parser.ForExpression:
+		return doc.Concat(
+			headerDoc("for "+n.Expression.Value+" {"),
+			bodyDoc(n.Children, next, depth, false),
+			bodyEndDoc(n.Children, next, depth),
+			doc.Text("}"),
+		)
+	case *parser.SwitchExpression:
+		return switchDoc(n, next, depth)
+	case *parser.TemplElementExpression:
+		return callDoc(n, depth)
+	case *parser.CallTemplateExpression:
+		// Write rewrites this to a templ element expression, which renders
+		// the whitespace around it differently, so the source syntax is kept.
+		return headerDoc("{! " + n.Expression.Value + " }")
 	}
 	return verbatimDoc(n.Write, depth)
+}
+
+// headerDoc is the source line of a statement, as its Write writes it: Go
+// code that is not reformatted, so its following lines are kept verbatim.
+func headerDoc(s string) doc.Doc {
+	return linesDoc(s, doc.LiteralLine())
+}
+
+func ifDoc(n *parser.IfExpression, next parser.Node, depth int) doc.Doc {
+	parts := []doc.Doc{
+		headerDoc("if " + n.Expression.Value + " {"),
+		bodyDoc(n.Then, next, depth, false),
+		bodyEndDoc(n.Then, next, depth),
+	}
+	for _, e := range n.ElseIfs {
+		parts = append(parts,
+			headerDoc("} else if "+e.Expression.Value+" {"),
+			bodyDoc(e.Then, next, depth, false),
+			bodyEndDoc(e.Then, next, depth),
+		)
+	}
+	if len(n.Else) > 0 {
+		parts = append(parts,
+			doc.Text("} else {"),
+			bodyDoc(n.Else, next, depth, false),
+			bodyEndDoc(n.Else, next, depth),
+		)
+	}
+	return doc.Concat(append(parts, doc.Text("}"))...)
+}
+
+// switchDoc lays out a switch with each case indented under it, and each
+// case body indented under its case.
+func switchDoc(n *parser.SwitchExpression, next parser.Node, depth int) doc.Doc {
+	var cases []doc.Doc
+	end := doc.HardLine()
+	for i, c := range n.Cases {
+		cases = append(cases, end, headerDoc(c.Expression.Value), bodyDoc(c.Children, next, depth+1, true))
+		if i < len(n.Cases)-1 {
+			end = bodyEndDoc(c.Children, next, depth+1)
+		} else {
+			end = bodyEndDoc(c.Children, next, depth)
+		}
+	}
+	return doc.Concat(
+		headerDoc("switch "+n.Expression.Value+" {"),
+		doc.Indent(cases...),
+		end,
+		doc.Text("}"),
+	)
+}
+
+// callDoc lays out a templ element expression, and its children, if any,
+// as a body.
+func callDoc(n *parser.TemplElementExpression, depth int) doc.Doc {
+	call := verbatimDoc((&parser.TemplElementExpression{Expression: n.Expression}).Write, depth)
+	if len(n.Children) == 0 {
+		return call
+	}
+	return doc.Concat(
+		call,
+		doc.Text(" {"),
+		bodyDoc(n.Children, nil, depth, false),
+		bodyEndDoc(n.Children, nil, depth),
+		doc.Text("}"),
+	)
+}
+
+// bodyDoc lays out the body of a statement whose first line is at depth:
+// its nodes, starting on the next line, indented. next is the node the
+// generator passes to the last of them. The generator drops the body's
+// leading whitespace, so the boundary before the first node is ignored.
+func bodyDoc(nodes []parser.Node, next parser.Node, depth int, caseBody bool) doc.Doc {
+	if len(nonWhitespace(nodes)) == 0 {
+		return doc.Concat()
+	}
+	s := siblings{ctx: parser.BoundaryInBody, after: next, caseBody: caseBody}
+	return doc.Indent(doc.HardLine(), doc.Group(nodesDoc(nodes, s, depth+1)))
+}
+
+// bodyEndDoc is the boundary between the last node of a body and the line
+// at depth that closes it, given the node next that the generator passes to
+// that last node.
+func bodyEndDoc(nodes []parser.Node, next parser.Node, depth int) doc.Doc {
+	children := nonWhitespace(nodes)
+	if len(children) == 0 {
+		return doc.HardLine()
+	}
+	last := children[len(children)-1]
+	g := gap{node: next}
+	if wt, ok := last.(parser.WhitespaceTrailer); ok {
+		g.ws = wt.Trailing()
+	}
+	// The generator drops a body's trailing *Whitespace node, so the
+	// boundary is classified as at the end of an element.
+	switch parser.ClassifyBoundary(last, next, g.ws, parser.BoundaryInElement) {
+	case parser.BoundaryGlued:
+		return doc.Concat()
+	case parser.BoundaryFixed:
+		if ws := sourceWhitespace(g, verticalWhitespace(last, doc.HardLine(), depth)); ws != nil {
+			return ws
+		}
+		return doc.Concat()
+	}
+	return verticalWhitespace(last, doc.HardLine(), depth)
 }
 
 // codeDoc is the output of write at indent 0, one Text per line, with each
@@ -366,7 +561,7 @@ func elementDoc(e *parser.Element, gluedBefore bool, depth int) doc.Doc {
 	// The opening tag is its own group, so it breaks only when it does not
 	// fit itself, not when the children do.
 	openTag := doc.Group(append(open, doc.Text(">"))...)
-	childrenDoc := nodesDoc(e.Children, parser.BoundaryInElement, depth+1)
+	childrenDoc := nodesDoc(e.Children, siblings{ctx: parser.BoundaryInElement}, depth+1)
 	first, last := children[0], children[len(children)-1]
 	closeTag := doc.Text("</" + e.Name + ">")
 	if hasBlockChild(children) || doc.HasHardLine(childrenDoc) {
@@ -402,10 +597,13 @@ func attributesDoc(attrs []parser.Attribute) []doc.Doc {
 }
 
 // attributeDoc is the text of a's Write. Constant values render as written,
-// so their newlines are kept verbatim.
+// so their newlines are kept verbatim, and so are those of comments.
 func attributeDoc(a parser.Attribute) doc.Doc {
 	switch a := a.(type) {
 	case *parser.ConstantAttribute:
+		return linesDoc(a.String(), doc.LiteralLine())
+	case *parser.AttributeComment:
+		// Like other comments, a multi-line comment is kept verbatim.
 		return linesDoc(a.String(), doc.LiteralLine())
 	case *parser.ConditionalAttribute:
 		parts := []doc.Doc{codeDoc(func(w io.Writer, _ int) error {
@@ -433,17 +631,10 @@ func attributeBlockDoc(attrs []parser.Attribute) []doc.Doc {
 }
 
 // hasBlockChild reports whether a child always goes on its own line: a block
-// element, a statement, or a node written by its own Write other than an
-// HTML comment.
+// element, or a node that is always written on lines of its own.
 func hasBlockChild(children []parser.Node) bool {
 	for _, c := range children {
-		switch c := c.(type) {
-		case *parser.Element:
-			if c.IsBlockElement() {
-				return true
-			}
-		case *parser.Text, *parser.StringExpression, *parser.HTMLComment:
-		default:
+		if e, ok := c.(*parser.Element); ok && e.IsBlockElement() || isOwnLine(c) {
 			return true
 		}
 	}
@@ -479,6 +670,8 @@ func endLine(n parser.Node) (uint32, bool) {
 	case *parser.StringExpression:
 		return n.Expression.Range.To.Line, true
 	case *parser.TemplElementExpression:
+		return n.Range.To.Line, true
+	case *parser.GoCode:
 		return n.Range.To.Line, true
 	}
 	return 0, false

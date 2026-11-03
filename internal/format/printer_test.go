@@ -68,6 +68,58 @@ var printerFixtureChecks = map[string]func(t *testing.T, out string){
 			t.Error("expected a blank line to be kept")
 		}
 	},
+	"statement_after_glued_element_stays_on_line.txt": func(t *testing.T, out string) {
+		if !strings.Contains(out, "\t\t<span>a</span>if x {\n") {
+			t.Error("expected if to stay on the line of the glued <span>")
+		}
+	},
+	"statement_body_last_child.txt": func(t *testing.T, out string) {
+		for _, s := range []string{"\t\t\ta}\n", "\t\t\t\t<b>{ i }</b>}\n", "\t\t\ta }\n", "\t\t\t<b>two</b>} else {\n"} {
+			if !strings.Contains(out, s) {
+				t.Errorf("expected the glued body end %q to be kept", s)
+			}
+		}
+	},
+	"component_after_text_fixed_boundary.txt": func(t *testing.T, out string) {
+		for _, s := range []string{"\t<p>text @c() more</p>\n", "\t\ttext\n\t\t@c()\n\t\tmore\n", "\t<span>@icon() Save</span>\n"} {
+			if !strings.Contains(out, s) {
+				t.Errorf("expected %q", s)
+			}
+		}
+	},
+	"text_before_comment_keeps_space.txt": func(t *testing.T, out string) {
+		for _, s := range []string{"text <!-- c -->", "\t\ttext \n\t\t// c\n"} {
+			if !strings.Contains(out, s) {
+				t.Errorf("expected the space in %q to be kept", s)
+			}
+		}
+	},
+	"script_and_style_unchanged_inside.txt": func(t *testing.T, out string) {
+		for _, s := range []string{
+			"<script type=\"module\">\n  const x = {{ x }};\n      if (x) {   go();   }\n</script>\n",
+			"<style>\n .a {    color: red; }\n   .b { }\n</style>\n",
+		} {
+			if !strings.Contains(out, s) {
+				t.Errorf("expected contents to be unchanged: %q", s)
+			}
+		}
+	},
+	"raw_go_block_reindented.txt": func(t *testing.T, out string) {
+		if !strings.Contains(out, "\t\t\t{{\n\t\t\t\tx := 1\n\t\t\t\ty := `a\n  b`\n\t\t\t}}\n") {
+			t.Error("expected the Go block to be re-indented, with the raw string kept verbatim")
+		}
+	},
+	"switch_case_text_does_not_start_with_case.txt": func(t *testing.T, out string) {
+		for _, line := range strings.Split(out, "\n") {
+			if !strings.HasPrefix(line, "\t\t\t") {
+				continue
+			}
+			l := strings.TrimLeft(line, "\t")
+			if strings.HasPrefix(l, "case") || strings.HasPrefix(l, "default") {
+				t.Errorf("case body line starts with a case keyword: %q", line)
+			}
+		}
+	},
 }
 
 func checkMaxWidth(t *testing.T, out string, width int) {

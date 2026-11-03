@@ -1,0 +1,22 @@
+-- in --
+package main
+
+templ test() {
+	<input
+		type="text"
+		/* a comment
+		   over lines */
+		name="q"
+	/>
+}
+-- out --
+package main
+
+templ test() {
+	<input
+		type="text"
+		/* a comment
+		   over lines */
+		name="q"
+	/>
+}

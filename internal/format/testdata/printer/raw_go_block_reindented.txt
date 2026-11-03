@@ -1,0 +1,32 @@
+-- in --
+package main
+
+templ test(x bool) {
+	<div>
+	<p>
+{{
+x := 1
+	y := `a
+  b`
+}}
+{{ z:=2 }}
+		{ fmt.Sprint(x, y, z) }
+	</p>
+	</div>
+}
+-- out --
+package main
+
+templ test(x bool) {
+	<div>
+		<p>
+			{{
+				x := 1
+				y := `a
+  b`
+			}}
+			{{ z := 2 }}
+			{ fmt.Sprint(x, y, z) }
+		</p>
+	</div>
+}

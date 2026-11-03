@@ -42,8 +42,5 @@ templ test(x bool) {
   .a { color: red; }
 </style>
 	</div>
-	<span>
-		<em>e</em>
-		@c() tail
-	</span>
+	<span><em>e</em>@c() tail</span>
 }

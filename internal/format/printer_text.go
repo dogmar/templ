@@ -10,15 +10,16 @@ import (
 // textParts is the words of t as alternating content and separator parts of
 // a doc.Fill. A newline between two words renders as the single space it
 // replaces, so each separator may break. A line-start hazard is joined to
-// the word before it, so that no line starts with it.
-func textParts(t *parser.Text) []doc.Doc {
+// the word before it, so that no line starts with it. caseBody reports
+// whether t is in a switch case body.
+func textParts(t *parser.Text, caseBody bool) []doc.Doc {
 	var parts []doc.Doc
 	var content string
 	for i, w := range textWords(t.Value) {
 		switch {
 		case i == 0:
 			content = w
-		case isLineStartHazard(w):
+		case isLineStartHazard(w, caseBody):
 			content += " " + w
 		default:
 			parts = append(parts, doc.Text(content), doc.Line())
@@ -30,9 +31,9 @@ func textParts(t *parser.Text) []doc.Doc {
 
 // textJoin is the Fill separator between adjacent text nodes prev and next
 // at a soft boundary.
-func textJoin(prev parser.Node, next *parser.Text, g gap) doc.Doc {
+func textJoin(prev parser.Node, next *parser.Text, g gap, caseBody bool) doc.Doc {
 	switch {
-	case endsWithSpace(prev) || startsWithSpace(next), isLineStartHazard(textWords(next.Value)[0]):
+	case endsWithSpace(prev) || startsWithSpace(next), isLineStartHazard(textWords(next.Value)[0], caseBody):
 		return doc.Text(" ")
 	case g.newlines >= 2:
 		return doc.BlankLine()
@@ -58,9 +59,17 @@ func textWords(s string) []string {
 func isSpaceOrTab(b byte) bool { return b == ' ' || b == '\t' }
 
 // isLineStartHazard reports whether word would be parsed as templ syntax if
-// it began a line.
-func isLineStartHazard(word string) bool {
-	for _, kw := range []string{"if", "for", "switch"} {
+// it began a line. In a switch case body (caseBody), a line starting with
+// case or default also starts the next case.
+func isLineStartHazard(word string, caseBody bool) bool {
+	keywords := []string{"if", "for", "switch"}
+	if caseBody {
+		if strings.HasPrefix(word, "default") {
+			return true
+		}
+		keywords = append(keywords, "case")
+	}
+	for _, kw := range keywords {
 		if word == kw || strings.HasPrefix(word, kw+" ") || strings.HasPrefix(word, kw+"\t") {
 			return true
 		}

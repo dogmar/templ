@@ -1,0 +1,30 @@
+-- in --
+package main
+
+templ test(x bool) {
+	switch x {
+		case true:
+			This case body has text that is long enough to reach the end of the line before that case study, which the parser would read as a new case.
+			<br/>
+			Another sentence follows on and runs to the edge of the column limit once again before default value.
+			fallthrough
+		default:
+			<b>no</b>
+	}
+}
+-- out --
+package main
+
+templ test(x bool) {
+	switch x {
+		case true:
+			This case body has text that is long enough to reach the end of the line before
+			that case study, which the parser would read as a new case.
+			<br/>
+			Another sentence follows on and runs to the edge of the column limit once again
+			before default value.
+			fallthrough
+		default:
+			<b>no</b>
+	}
+}
