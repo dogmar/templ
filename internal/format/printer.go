@@ -8,6 +8,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/a-h/templ/internal/format/doc"
 	parser "github.com/a-h/templ/parser/v2"
@@ -1099,8 +1100,12 @@ func attributeDoc(a parser.Attribute) doc.Doc {
 		// Like other comments, a multi-line comment is kept verbatim.
 		return linesDoc(a.String(), doc.LiteralLine())
 	case *parser.ConditionalAttribute:
+		// The parser only reads if followed by a space as a conditional
+		// attribute, and a condition starting on the next line would leave
+		// if at the end of its line, where the space is trimmed.
+		cond := strings.TrimLeftFunc(a.Expression.Value, unicode.IsSpace)
 		parts := []doc.Doc{codeDoc(func(w io.Writer, _ int) error {
-			_, err := io.WriteString(w, "if "+a.Expression.Value+" {")
+			_, err := io.WriteString(w, "if "+cond+" {")
 			return err
 		})}
 		parts = append(parts, attributeBlockDoc(a.Then)...)
