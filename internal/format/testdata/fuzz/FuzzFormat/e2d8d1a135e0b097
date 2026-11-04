@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("package A\ntempl A(){<div if \n0{A=\"\"}></div>}")

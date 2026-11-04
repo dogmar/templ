@@ -1,0 +1,17 @@
+-- in --
+package A
+
+templ A() {
+	<div if 
+0 { A="" }></div>
+}
+-- out --
+package A
+
+templ A() {
+	<div
+		if 0 {
+			A=""
+		}
+	></div>
+}
