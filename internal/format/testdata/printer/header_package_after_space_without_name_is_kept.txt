@@ -1,0 +1,6 @@
+-- in --
+ package 
+A
+-- out --
+ package 
+A
