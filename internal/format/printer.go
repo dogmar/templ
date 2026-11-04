@@ -496,6 +496,12 @@ func boundaryDoc(prev parser.Node, g gap, kind parser.Boundary, depth int, ownLi
 		// render is kept, so that components written one per line stay so.
 		return doc.HardLine()
 	case g.ws == parser.SpaceHorizontal:
+		if _, prevIsText := prev.(*parser.Text); prevIsText {
+			// The parser reads a space after text as part of the text,
+			// which renders it, so the space that did not render is
+			// dropped. A stray closing tag the parser skips can leave one.
+			return doc.SoftLine()
+		}
 		return doc.Line()
 	}
 	return doc.SoftLine()
