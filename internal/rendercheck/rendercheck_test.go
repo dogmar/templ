@@ -96,3 +96,12 @@ func TestMismatchOnGoDirectiveDifference(t *testing.T) {
 		})
 	}
 }
+
+func TestEquivalentIgnoresGoSpacingGofmtTakesPassesToSettle(t *testing.T) {
+	// gofmt takes three passes to settle {;;} to {}.
+	before := parse(t, "package main\n\nfunc A(){;;}\n")
+	after := parse(t, "package main\n\nfunc A() {}\n")
+	if err := Equivalent(before, after); err != nil {
+		t.Fatalf("expected equivalent, got %v", err)
+	}
+}
