@@ -1,0 +1,12 @@
+-- in --
+package A
+
+templ A() {
+	0</Br> <br>
+}
+-- out --
+package A
+
+templ A() {
+	0<br/>
+}
