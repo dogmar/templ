@@ -54,7 +54,7 @@ func Render(tf *templparser.TemplateFile) (string, error) {
 	if err != nil {
 		// A templ file without a package clause generates a Go fragment,
 		// which only gofmt accepts; its comments are compared as written.
-		formatted, err := format.Source(stripped)
+		formatted, err := formatSettled(stripped)
 		if err != nil {
 			return "", fmt.Errorf("failed to format generated code: %w", err)
 		}
@@ -67,11 +67,31 @@ func Render(tf *templparser.TemplateFile) (string, error) {
 	}
 	// Printing without the comments can leave their lines blank, so format
 	// once more to collapse the blank lines.
-	formatted, err := format.Source(printed.Bytes())
+	formatted, err := formatSettled(printed.Bytes())
 	if err != nil {
 		return "", fmt.Errorf("failed to format generated code: %w", err)
 	}
 	return string(formatted), nil
+}
+
+// formatSettled runs gofmt on src until the output stops changing. gofmt
+// is not a fixed point on some code, such as empty statements in a
+// one-line block ({;;} takes three passes to become {}), and the formatter
+// settles top-level Go the same way, so one pass would report a difference
+// that does not render.
+func formatSettled(src []byte) ([]byte, error) {
+	formatted, err := format.Source(src)
+	if err != nil {
+		return nil, err
+	}
+	for range 10 {
+		again, err := format.Source(formatted)
+		if err != nil || bytes.Equal(again, formatted) {
+			break
+		}
+		formatted = again
+	}
+	return formatted, nil
 }
 
 // stripComments removes every comment from file except those that direct
