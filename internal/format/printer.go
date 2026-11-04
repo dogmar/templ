@@ -1058,7 +1058,10 @@ func elementDoc(e *parser.Element, gluedBefore bool, depth int) doc.Doc {
 		)
 	}
 	if hasBlockChild(children) || doc.HasHardLine(childrenDoc) {
-		return doc.Concat(
+		// A group with a hard line is broken, so a Fill does not count the
+		// element as fitting on the line of the content before it, as
+		// Prettier's JSX children group with shouldBreak.
+		return doc.Group(
 			openTag,
 			doc.Indent(openingEdge(first, doc.HardLine()), childrenDoc),
 			closingEdge(last, doc.HardLine()),
