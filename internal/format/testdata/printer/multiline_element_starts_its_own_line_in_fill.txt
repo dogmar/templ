@@ -1,0 +1,27 @@
+-- in --
+package A
+
+templ A() {
+	if true {
+		if true {
+			aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 0<b>
+				bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+				<br/>
+			</b>
+		}
+	}
+}
+-- out --
+package A
+
+templ A() {
+	if true {
+		if true {
+			aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+			0<b>
+				bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+				<br/>
+			</b>
+		}
+	}
+}
